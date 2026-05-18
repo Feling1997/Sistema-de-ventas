@@ -1,0 +1,22 @@
+# Composer
+/vendor/
+
+# Variables de entorno
+.env
+.env.*
+
+# Logs del sistema
+/almacenamiento/logs/
+*.log
+
+# Cache / temporales
+/tmp/
+.cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

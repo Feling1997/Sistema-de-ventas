@@ -1,0 +1,23 @@
+TICKET DE REPARACION
+====================
+Codigo: REP-20260504-5516
+Cliente: Cliente Prueba
+Telefono: 0981000000
+
+Equipo: Samsung A32
+IMEI: 123456789012345
+
+Falla reportada:
+No carga
+
+Diagnostico:
+Pin de carga danado
+
+Garantia: 30 dias
+Estado: Reparado
+Precio: 150000.00
+Fecha ingreso: 2026-05-04
+Fecha entrega: 2026-05-04
+
+Observaciones:
+Prueba automatica

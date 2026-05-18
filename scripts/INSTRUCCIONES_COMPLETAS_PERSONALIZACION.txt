@@ -1,0 +1,173 @@
+# ============================================
+# INSTRUCCIONES COMPLETAS PARA PERSONALIZAR
+# ICONO, LOGO Y COMANDERA EN LA PC DEL CLIENTE
+# ============================================
+
+## PREPARACIÓN DE ARCHIVOS
+Antes de empezar, el cliente debe tener preparados:
+
+### 1. Icono para la aplicación de Reparaciones
+- Formato: .ico (256x256 píxeles)
+- Nombre sugerido: reparaciones.ico
+
+### 2. Logo para la interfaz web
+- Formato: .png (120x40 píxeles mínimo)
+- Nombre sugerido: logo_empresa.png
+
+### 3. Logo para tickets/comandera
+- Formato: .png (ancho máximo 200px, altura proporcional)
+- Nombre sugerido: logo_ticket.png
+
+---
+
+## PASO 1: CAMBIAR ICONO DE LA APP DE REPARACIONES
+
+### Ubicación:
+C:\ruta\de\instalacion\reparaciones_python
+
+### Instrucciones:
+1. Copiar el archivo .ico a la carpeta reparaciones_python
+2. Renombrarlo exactamente como: reparaciones.ico
+3. Eliminar el archivo reparaciones.ico anterior (hacer respaldo)
+4. Clic derecho en el acceso directo del escritorio "Reparaciones"
+5. Propiedades > Acceso directo > Cambiar icono
+6. Buscar y seleccionar reparaciones.ico
+7. Aceptar > Aplicar > Aceptar
+8. Cerrar y reabrir la aplicación
+
+---
+
+## PASO 2: CAMBIAR LOGO EN LA INTERFAZ WEB
+
+### Ubicación de archivos:
+C:\xampp\htdocs\VENTAS\
+
+### Paso 2.1: Crear carpeta para imágenes
+- Crear carpeta: publico\assets\img\ (si no existe)
+
+### Paso 2.2: Copiar logo
+- Copiar logo_empresa.png a: publico\assets\img\
+
+### Paso 2.3: Modificar menu.php
+Archivo: aplicacion\vistas\parciales\menu.php
+
+Buscar (líneas 40-46):
+```php
+<a class="navbar-brand app-brand" href="index.php?c=ventas&a=inicio">
+  <span class="app-brand-mark">
+    <i class="bi bi-shop-window"></i>
+  </span>
+  <span class="app-brand-text">Sistema de Ventas</span>
+</a>
+```
+
+Reemplazar con:
+```php
+<a class="navbar-brand app-brand" href="index.php?c=ventas&a=inicio">
+  <img src="/VENTAS/publico/assets/img/logo_empresa.png"
+       alt="Logo" class="app-brand-logo">
+</a>
+```
+
+### Paso 2.4: Agregar CSS
+Archivo: publico\assets\css\app.css
+
+Al final del archivo, agregar:
+```css
+.app-brand-logo {
+  height: 40px;
+  width: auto;
+  max-width: 200px;
+  object-fit: contain;
+}
+```
+
+### Paso 2.5: Cambiar título (opcional)
+Archivo: aplicacion\vistas\parciales\encabezado.php
+
+Cambiar línea 9:
+```php
+<title>Sistema de Ventas</title>
+```
+Por:
+```php
+<title>Nombre del Negocio</title>
+```
+
+---
+
+## PASO 3: AGREGAR LOGO A LOS TICKETS/COMANDERA
+
+### Ubicación de archivos:
+C:\xampp\htdocs\VENTAS\
+
+### Paso 3.1: Copiar logo para tickets
+- Copiar logo_ticket.png a: publico\assets\img\
+
+### Paso 3.2: Modificar ControladorReparaciones.php
+Archivo: aplicacion\controladores\ControladorReparaciones.php
+
+En la función html_ticket_comandera (alrededor de línea 380), después de:
+```php
+<div class='ticket'>
+    <div class='titulo'>$comercio</div>" .
+```
+
+Agregar:
+```php
+    <div style='text-align: center; margin: 5px 0;'>
+        <img src='/VENTAS/publico/assets/img/logo_ticket.png'
+             style='max-width: 60mm; height: auto;' alt='Logo'>
+    </div>
+    <div class='titulo'>$comercio</div>" .
+```
+
+### Paso 3.3: Agregar CSS para imagen en tickets
+En el mismo archivo, en la sección <style>, agregar:
+```css
+.logo-ticket {
+    max-width: 60mm;
+    height: auto;
+    margin: 5px 0;
+}
+```
+
+---
+
+## PASO 4: AGREGAR FAVICON (OPCIONAL)
+
+### Paso 4.1: Crear favicon
+- Archivo: favicon.ico (16x16 o 32x32 píxeles)
+- Copiar a: publico\favicon.ico
+
+### Paso 4.2: Modificar encabezado.php
+Archivo: aplicacion\vistas\parciales\encabezado.php
+
+Después de <title>, agregar:
+```php
+<link rel="icon" type="image/x-icon" href="/VENTAS/publico/favicon.ico">
+```
+
+---
+
+## VERIFICACIÓN FINAL
+
+1. Reiniciar XAMPP (Apache y MySQL)
+2. Limpiar caché del navegador (Ctrl + Shift + Del)
+3. Reiniciar aplicación de Reparaciones
+4. Probar impresión de ticket de reparación
+5. Verificar que aparezca el logo en los tickets
+
+---
+
+## NOTAS IMPORTANTES
+
+- Respaldar archivos antes de modificarlos
+- Las rutas son relativas a la instalación de XAMPP
+- Para tickets, la imagen debe ser proporcional al ancho de 80mm
+- Si hay problemas de permisos, ejecutar como administrador
+- Después de cambios, refrescar la página web (F5 o Ctrl+F5)
+
+---
+FECHA: $(date)
+GENERADO AUTOMÁTICAMENTE

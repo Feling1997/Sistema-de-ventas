@@ -1,0 +1,22 @@
+# Cambios necesarios en menu.php para agregar logo
+# Buscar esta sección (líneas 40-46):
+<a class="navbar-brand app-brand" href="index.php?c=ventas&a=inicio">
+  <span class="app-brand-mark">
+    <i class="bi bi-shop-window"></i>
+  </span>
+  <span class="app-brand-text">Sistema de Ventas</span>
+</a>
+
+# Reemplazar con:
+<a class="navbar-brand app-brand" href="index.php?c=ventas&a=inicio">
+  <img src="/VENTAS/publico/assets/img/logo_empresa.png"
+       alt="Logo" class="app-brand-logo">
+</a>
+
+# Agregar al final de app.css:
+.app-brand-logo {
+  height: 40px;
+  width: auto;
+  max-width: 200px;
+  object-fit: contain;
+}

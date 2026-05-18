@@ -1,0 +1,1273 @@
+<?php
+require_once __DIR__ . "/../modelos/Venta.php";
+require_once __DIR__ . "/../modelos/FacturaFiscal.php";
+require_once __DIR__ . "/../modelos/Cliente.php";
+require_once __DIR__ . "/../modelos/Presupuesto.php";
+require_once __DIR__ . "/../modelos/ConfiguracionSistema.php";
+require_once __DIR__ . "/../modelos/ListaPrecio.php";
+require_once __DIR__ . "/../modelos/CuentaCorriente.php";
+require_once __DIR__ . "/../../configuraciones/seguridad.php";
+require_once __DIR__ . "/../../configuraciones/ayudas.php";
+require_once __DIR__ . "/../../configuraciones/csrf.php";
+require_once __DIR__ . "/../../configuraciones/base_datos.php";
+
+class ControladorVentas {
+    private function permiso(): bool {
+        $ok = false;
+        if (!require_login()) {
+            flash_error("Tenés que iniciar sesión.");
+            redirigir("index.php?c=auth&a=login");
+        } else {
+            if (!require_rol(["ADMIN","VENDEDOR"])) {
+                flash_error("No tenés permisos para Ventas.");
+                redirigir("index.php?c=auth&a=login");
+            } else
+                $ok = true;
+        }
+        return $ok;
+    }
+
+    private function obtener_carrito(): array {
+        iniciar_sesion();
+        $carrito = [];
+        if (isset($_SESSION["carrito"]) && is_array($_SESSION["carrito"]))
+            $carrito = $_SESSION["carrito"];
+        return $carrito;
+    }
+
+    private function guardar_carrito(array $carrito): void {
+        iniciar_sesion();
+        $_SESSION["carrito"] = $carrito;
+    }
+
+    private function vaciar_carrito_interno(): void {
+        iniciar_sesion();
+        $_SESSION["carrito"] = [];
+    }
+
+    private function controlar_stock_ventas(): bool {
+        $config = ConfiguracionSistema::obtener();
+        return (string)($config["controlar_stock_ventas"] ?? "1") === "1";
+    }
+
+    private function obtener_form_venta(): array {
+        $datos = [
+            "id_cliente" => 1,
+            "buscar_cliente" => "",
+            "id_producto" => "",
+            "cantidad" => 1,
+            "descuento" => 0,
+            "precio_unit" => "",
+            "tipo_comprobante" => 98,
+            "buscar_producto" => "",
+            "id_lista_precio" => ListaPrecio::id_predeterminada()
+        ];
+        $flash = obtener_form_data("ventas_form");
+        if ($flash !== [])
+            $datos = array_merge($datos, $flash);
+        return $datos;
+    }
+
+    private function guardar_form_venta(array $datos): void {
+        flash_form_data("ventas_form", [
+            "id_cliente" => (int)($datos["id_cliente"] ?? 1),
+            "buscar_cliente" => (string)($datos["buscar_cliente"] ?? ""),
+            "id_producto" => (string)($datos["id_producto"] ?? ""),
+            "cantidad" => $datos["cantidad"] ?? 1,
+            "descuento" => $datos["descuento"] ?? 0,
+            "precio_unit" => (string)($datos["precio_unit"] ?? ""),
+            "tipo_comprobante" => (int)($datos["tipo_comprobante"] ?? 98),
+            "buscar_producto" => (string)($datos["buscar_producto"] ?? ""),
+            "id_lista_precio" => (int)($datos["id_lista_precio"] ?? ListaPrecio::id_predeterminada())
+        ]);
+    }
+
+    private function listar_clientes_select(): array {
+        $lista = [];
+        $pdo = obtener_pdo();
+        if ($pdo !== null) {
+            try {
+                Cliente::asegurar_columnas_fiscales($pdo);
+                $sql = "SELECT id, nombre, dni, tipo_documento, condicion_iva, email, id_lista_precio FROM clientes ORDER BY (id=1) DESC, nombre ASC";
+                $st = $pdo->prepare($sql);
+                $st->execute();
+                $rows = $st->fetchAll();
+                if (is_array($rows))
+                    $lista = $rows;
+            } catch (Throwable $e) {
+                registrar_log("ControladorVentas::listar_clientes_select", $e->getMessage());
+            }
+        }
+        return $lista;
+    }
+
+    private function listar_productos_select(): array {
+        $lista = [];
+        $pdo = obtener_pdo();
+        if ($pdo !== null) {
+            try {
+                ListaPrecio::asegurar_tablas();
+                $sql = "SELECT p.id, p.nombre, p.cod_barras, p.precio_final, p.factor_conversion, p.id_stock, p.id_asociado,
+                               GROUP_CONCAT(CONCAT(pp.id_lista, ':', pp.precio) SEPARATOR '|') AS precios_lista
+                        FROM productos p
+                        LEFT JOIN producto_precios pp ON pp.id_producto = p.id
+                        WHERE p.activo = 1
+                        GROUP BY p.id, p.nombre, p.cod_barras, p.precio_final, p.factor_conversion, p.id_stock, p.id_asociado
+                        ORDER BY p.nombre ASC";
+                $st = $pdo->prepare($sql);
+                $st->execute();
+                $rows = $st->fetchAll();
+                if (is_array($rows))
+                    $lista = $rows;
+            } catch (Throwable $e) {
+                registrar_log("ControladorVentas::listar_productos_select", $e->getMessage());
+            }
+        }
+        return $lista;
+    }
+
+    private function render_carrito_rows(array $carrito): string {
+        ob_start();
+        if (count($carrito) > 0) {
+            foreach ($carrito as $idx => $it):
+                $sub = Venta::calcular_subtotal((float)($it["cantidad"] ?? 0), (float)($it["precio_unit"] ?? 0), (float)($it["descuento"] ?? 0));
+                ?>
+                <tr>
+                  <td><?= htmlspecialchars($it["nombre"]) ?></td>
+                  <td style="text-align:right;">
+                    <input form="formActualizarItem<?= (int)$idx ?>" type="number" step="0.001" min="0.001" class="form-control form-control-sm text-end" name="cantidad" value="<?= htmlspecialchars(numero_para_input($it["cantidad"] ?? 1, 3)) ?>">
+                  </td>
+                  <td style="text-align:right;">
+                    <input form="formActualizarItem<?= (int)$idx ?>" type="number" step="0.01" min="0" class="form-control form-control-sm text-end" name="precio_unit" value="<?= htmlspecialchars(numero_para_input($it["precio_unit"] ?? 0, 2)) ?>">
+                  </td>
+                  <td style="text-align:right;">
+                    <input form="formActualizarItem<?= (int)$idx ?>" type="number" step="0.01" min="0" max="100" class="form-control form-control-sm text-end" name="descuento" value="<?= htmlspecialchars(numero_para_input($it["descuento"] ?? 0, 2)) ?>">
+                  </td>
+                  <td style="text-align:right;"><?= htmlspecialchars(moneda_para_mostrar($sub)) ?></td>
+                  <td style="text-align:right;">
+                    <div class="sales-line-actions">
+                      <form id="formActualizarItem<?= (int)$idx ?>" method="POST" action="index.php?c=ventas&a=actualizar_item" class="m-0">
+                        <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token()) ?>">
+                        <input type="hidden" name="idx" value="<?= (int)$idx ?>">
+                        <button class="btn btn-sm btn-outline-primary">Guardar</button>
+                      </form>
+                      <a class="btn btn-sm btn-outline-secondary" href="index.php?c=ventas&a=editar_item&idx=<?= (int)$idx ?>">Editar</a>
+                      <a class="btn btn-sm btn-outline-danger" href="index.php?c=ventas&a=quitar&idx=<?= (int)$idx ?>" onclick="return confirm('&iquest;Quitar item?');">Quitar</a>
+                    </div>
+                  </td>
+                </tr>
+                <?php
+            endforeach;
+        } else {
+            ?>
+            <tr><td colspan="6" class="text-center text-muted py-4">Todav&iacute;a no hay productos cargados.</td></tr>
+            <?php
+        }
+        return ob_get_clean();
+    }
+
+    private function calcular_total_carrito(array $carrito): float {
+        $total = 0.0;
+        foreach ($carrito as $it) {
+            $cantidad = (float)($it["cantidad"] ?? 0);
+            $precio_unit = (float)($it["precio_unit"] ?? 0);
+            $descuento = (float)($it["descuento"] ?? 0);
+            $sub = Venta::calcular_subtotal($cantidad, $precio_unit, $descuento);
+            $total += $sub;
+        }
+        return $total;
+    }
+
+    public function lista(): void {
+        if ($this->permiso()) {
+            $fecha_desde = trim((string)obtener_get("fecha_desde", ""));
+            $fecha_hasta = trim((string)obtener_get("fecha_hasta", ""));
+            $texto_buscar = trim((string)obtener_get("buscar", ""));
+            $campo_buscar = trim((string)obtener_get("campo", "todos"));
+            $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));
+            $ventas = Venta::listar_ventas_periodo($fecha_desde, $fecha_hasta);
+            $campos_busqueda = [
+                "id" => "ID",
+                "fecha" => "Fecha",
+                "cliente_nombre" => "Cliente",
+                "usuario_nombre" => "Vendedor",
+                "total" => "Total"
+            ];
+            $ventas = filtrar_registros_busqueda($ventas, $texto_buscar, $campo_buscar, $campos_busqueda, $metodo_buscar);
+            $ids_venta_filtradas = array_map(fn($venta) => (int)($venta["id"] ?? 0), $ventas);
+            $resumen_periodo = [
+                "cantidad_ventas" => count($ventas),
+                "total_vendido" => 0.0,
+                "ganancia" => Venta::obtener_ganancia_por_ids($ids_venta_filtradas)
+            ];
+            foreach ($ventas as $venta)
+                $resumen_periodo["total_vendido"] += (float)($venta["total"] ?? 0);
+            $estados_fiscales = FacturaFiscal::estado_por_ventas($ids_venta_filtradas);
+            $detalles_ventas = [];
+            foreach ($ids_venta_filtradas as $id_venta) {
+                if ($id_venta > 0)
+                    $detalles_ventas[$id_venta] = Venta::obtener_detalle($id_venta);
+            }
+            include __DIR__ . "/../vistas/parciales/encabezado.php";
+            include __DIR__ . "/../vistas/ventas/lista.php";
+            include __DIR__ . "/../vistas/parciales/pie.php";
+        }
+    }
+
+    public function inicio(): void {
+        if ($this->permiso()) {
+            iniciar_sesion();
+            $rol = (string)($_SESSION["usuario_logueado"]["rol"] ?? "");
+            $modulos = [
+                [
+                    "titulo" => "Ventas",
+                    "texto" => "Ver historial, filtrar y revisar comprobantes.",
+                    "icono" => "bi-receipt-cutoff",
+                    "clase" => "modulo-ventas",
+                    "url" => "index.php?c=ventas&a=lista"
+                ],
+                [
+                    "titulo" => "Nueva venta",
+                    "texto" => "Cargar una venta rápida con cliente y productos.",
+                    "icono" => "bi-cart-plus-fill",
+                    "clase" => "modulo-nueva",
+                    "url" => "index.php?c=ventas&a=nueva"
+                ],
+                [
+                    "titulo" => "Clientes",
+                    "texto" => "Buscar, crear y editar clientes.",
+                    "icono" => "bi-people-fill",
+                    "clase" => "modulo-clientes",
+                    "url" => "index.php?c=clientes&a=index"
+                ],
+                [
+                    "titulo" => "Stock",
+                    "texto" => "Controlar cantidades, costos y movimientos base.",
+                    "icono" => "bi-box-seam-fill",
+                    "clase" => "modulo-stock",
+                    "url" => "index.php?c=stock&a=index"
+                ],
+                [
+                    "titulo" => "Productos",
+                    "texto" => "Administrar productos y su relación con stock.",
+                    "icono" => "bi-bag-fill",
+                    "clase" => "modulo-productos",
+                    "url" => "index.php?c=productos&a=index"
+                ],
+                [
+                    "titulo" => "Exportaciones",
+                    "texto" => "Descargar stock, listas, pedidos y estadisticas.",
+                    "icono" => "bi-graph-up-arrow",
+                    "clase" => "modulo-exportaciones",
+                    "url" => "index.php?c=exportaciones&a=index"
+                ]
+            ];
+            if ($rol === "ADMIN") {
+                $modulos[] = [
+                    "titulo" => "Usuarios",
+                    "texto" => "Administrar accesos, roles y estado.",
+                    "icono" => "bi-person-gear",
+                    "clase" => "modulo-usuarios",
+                    "url" => "index.php?c=usuarios&a=index"
+                ];
+                $modulos[] = [
+                    "titulo" => "Backup",
+                    "texto" => "Copias completas a pendrive, carpeta, Drive o Backblaze.",
+                    "icono" => "bi-database-fill-check",
+                    "clase" => "modulo-backup",
+                    "url" => "index.php?c=configuraciones&a=backup"
+                ];
+            }
+            $config_sistema = ConfiguracionSistema::obtener();
+            if ((string)($config_sistema["mostrar_reparaciones"] ?? "1") === "1") {
+                $url_reparaciones = trim((string)($config_sistema["url_reparaciones"] ?? ""));
+                $url_reparaciones = normalizar_url_reparaciones($url_reparaciones);
+                $modulos[] = [
+                    "titulo" => "Reparaciones",
+                    "texto" => "Abrir el sistema Python desde Ventas.",
+                    "icono" => "bi-tools",
+                    "clase" => "modulo-reparaciones",
+                    "url" => $url_reparaciones
+                ];
+            }
+            $body_class = "bg-light page-home";
+            include __DIR__ . "/../vistas/parciales/encabezado.php";
+            include __DIR__ . "/../vistas/ventas/inicio.php";
+            include __DIR__ . "/../vistas/parciales/pie.php";
+        }
+    }
+
+    public function guardar_menu(): void {
+        if ($this->permiso()) {
+            $volver = (string)obtener_post("volver", "index.php?c=ventas&a=inicio");
+            if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+                flash_error("Acceso inválido.");
+                redirigir($volver);
+            }
+            $csrf = obtener_post("csrf", "");
+            if (!csrf_valido($csrf)) {
+                flash_error("Token inválido. Recargá la página.");
+                redirigir($volver);
+            }
+            iniciar_sesion();
+            $id_usuario = (int)($_SESSION["usuario_logueado"]["id"] ?? 0);
+            $rol = (string)($_SESSION["usuario_logueado"]["rol"] ?? "");
+            $seleccion = $_POST["modulos_menu"] ?? [];
+            if (!is_array($seleccion))
+                $seleccion = [];
+            $ok = menu_guardar_preferencias_usuario($id_usuario, $rol, $seleccion);
+            if ($ok)
+                flash_ok("Barra superior actualizada.");
+            else
+                flash_error("No se pudo guardar la barra superior.");
+            redirigir($volver);
+        }
+    }
+
+    public function nueva(): void {
+        if ($this->permiso()) {
+            $clientes = $this->listar_clientes_select();
+            $productos = $this->listar_productos_select();
+            $listas_precios = ListaPrecio::listar(true);
+            $carrito = $this->obtener_carrito();
+            $total = $this->calcular_total_carrito($carrito);
+            $form_venta = $this->obtener_form_venta();
+            include __DIR__ . "/../vistas/parciales/encabezado.php";
+            include __DIR__ . "/../vistas/ventas/nueva.php";
+            include __DIR__ . "/../vistas/parciales/pie.php";
+        }
+    }
+
+    public function aparte(): void {
+        if ($this->permiso()) {
+            redirigir("index.php?c=ventas&a=panel");
+        }
+    }
+
+    public function panel(): void {
+        if ($this->permiso()) {
+            iniciar_sesion();
+            $rol = (string)($_SESSION["usuario_logueado"]["rol"] ?? "");
+            $modulos = [
+                [
+                    "titulo" => "Ventas",
+                    "texto" => "Ver historial, filtrar y revisar comprobantes.",
+                    "icono" => "bi-receipt-cutoff",
+                    "clase" => "modulo-ventas",
+                    "url" => "index.php?c=ventas&a=lista"
+                ],
+                [
+                    "titulo" => "Nueva venta",
+                    "texto" => "Cargar una venta rápida con cliente y productos.",
+                    "icono" => "bi-cart-plus-fill",
+                    "clase" => "modulo-nueva",
+                    "url" => "index.php?c=ventas&a=nueva"
+                ],
+                [
+                    "titulo" => "Clientes",
+                    "texto" => "Buscar, crear y editar clientes.",
+                    "icono" => "bi-people-fill",
+                    "clase" => "modulo-clientes",
+                    "url" => "index.php?c=clientes&a=index"
+                ],
+                [
+                    "titulo" => "Stock",
+                    "texto" => "Controlar cantidades, costos y movimientos base.",
+                    "icono" => "bi-box-seam-fill",
+                    "clase" => "modulo-stock",
+                    "url" => "index.php?c=stock&a=index"
+                ],
+                [
+                    "titulo" => "Productos",
+                    "texto" => "Administrar productos y su relación con stock.",
+                    "icono" => "bi-bag-fill",
+                    "clase" => "modulo-productos",
+                    "url" => "index.php?c=productos&a=index"
+                ],
+                [
+                    "titulo" => "Exportaciones",
+                    "texto" => "Descargar stock, listas, pedidos y estadisticas.",
+                    "icono" => "bi-graph-up-arrow",
+                    "clase" => "modulo-exportaciones",
+                    "url" => "index.php?c=exportaciones&a=index"
+                ]
+            ];
+            if ($rol === "ADMIN") {
+                $modulos[] = [
+                    "titulo" => "Usuarios",
+                    "texto" => "Administrar accesos, roles y estado.",
+                    "icono" => "bi-person-gear",
+                    "clase" => "modulo-usuarios",
+                    "url" => "index.php?c=usuarios&a=index"
+                ];
+            }
+            $body_class = "bg-light page-ventas-panel";
+            include __DIR__ . "/../vistas/parciales/encabezado.php";
+            ?>
+            <div class="module-shell">
+              <div class="module-head">
+                <div>
+                  <h3 class="mb-1">Ventas</h3>
+                  <div class="text-muted small">Panel principal de acceso rápido a los módulos de ventas.</div>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                  <a class="btn btn-outline-secondary" href="index.php?c=reparaciones&a=index">Ir a Reparaciones</a>
+                </div>
+              </div>
+              <div class="desktop-grid">
+                <?php foreach ($modulos as $modulo): ?>
+                  <a class="desktop-tile <?= htmlspecialchars($modulo["clase"]) ?>" href="<?= htmlspecialchars($modulo["url"]) ?>">
+                    <div class="desktop-icon">
+                      <i class="bi <?= htmlspecialchars($modulo["icono"]) ?>"></i>
+                    </div>
+                    <div class="desktop-title"><?= htmlspecialchars($modulo["titulo"]) ?></div>
+                    <div class="desktop-text"><?= htmlspecialchars($modulo["texto"]) ?></div>
+                  </a>
+                <?php endforeach; ?>
+              </div>
+            </div>
+            <?php
+            include __DIR__ . "/../vistas/parciales/pie.php";
+        }
+    }
+
+    public function agregar(): void {
+        if ($this->permiso()) {
+            $error = "";
+            if ($_SERVER["REQUEST_METHOD"] === "POST") {
+                $csrf = obtener_post("csrf", "");
+                if (!csrf_valido($csrf))
+                    $error = "Token inválido. Recargá la página.";
+                else {
+                    $datos_form = [
+                        "id_cliente" => (int)obtener_post("id_cliente", 1),
+                        "buscar_cliente" => trim((string)obtener_post("buscar_cliente", "")),
+                        "id_producto" => (string)obtener_post("id_producto", ""),
+                        "cantidad" => (float)obtener_post("cantidad", 1),
+                        "descuento" => (float)obtener_post("descuento", 0),
+                        "precio_unit" => trim((string)obtener_post("precio_unit", "")),
+                        "tipo_comprobante" => (int)obtener_post("tipo_comprobante", 98),
+                        "buscar_producto" => trim((string)obtener_post("buscar_producto", "")),
+                        "id_lista_precio" => (int)obtener_post("id_lista_precio", ListaPrecio::id_predeterminada())
+                    ];
+                    $id_producto = (int)obtener_post("id_producto", 0);
+                    $cantidad = (float)obtener_post("cantidad", 0);
+                    $descuento = (float)obtener_post("descuento", 0);
+                    $precio_manual_raw = trim((string)obtener_post("precio_unit", ""));
+                    $precio_manual = parsear_numero_form($precio_manual_raw, 0);
+                    $aplicar_lista_existente = (int)obtener_post("aplicar_lista_existente", 0) === 1;
+                    if ($id_producto <= 0 || $cantidad <= 0)
+                        $error = "Producto o cantidad inválidos.";
+                    else {
+                        if ($descuento < 0)
+                            $descuento = 0;
+                        if ($descuento > 100)
+                            $descuento = 100;
+                        $prod = Venta::obtener_producto_para_venta($id_producto);
+                        if ($prod === null || (int)$prod["activo"] !== 1)
+                            $error = "Producto no disponible.";
+                        else {
+                            $carrito = $this->obtener_carrito();
+                            $precio_lista_info = ListaPrecio::precio_producto_cargado($id_producto, (int)$datos_form["id_lista_precio"]);
+                            $precio_lista = $precio_lista_info !== null ? (float)$precio_lista_info["precio"] : null;
+                            $usa_precio_manual = ($precio_manual_raw !== "" && $precio_manual >= 0);
+                            if (!$usa_precio_manual && ($precio_lista === null || $precio_lista <= 0))
+                                $error = "El producto no tiene precio cargado en la lista seleccionada.";
+                            $precio_unit = $usa_precio_manual ? $precio_manual : (float)$precio_lista;
+                            $factor = (float)$prod["factor_conversion"];
+                            if ($factor < 0) { $factor = 0; }
+                            $id_stock_consumo = Venta::obtener_id_stock_consumo($prod);
+                            if ($this->controlar_stock_ventas() && $id_stock_consumo !== null) {
+                                $stock = Venta::obtener_stock_por_id($id_stock_consumo);
+                                if ($stock === null)
+                                    $error = "Stock no encontrado para el producto.";
+                                else {
+                                    $consumo = Venta::calcular_consumo_stock($cantidad, $factor);
+                                    foreach ($carrito as $item_cargado) {
+                                        if ((int)($item_cargado["id_producto"] ?? 0) === $id_producto)
+                                            $consumo += Venta::calcular_consumo_stock((float)($item_cargado["cantidad"] ?? 0), $factor);
+                                    }
+                                    $disp = (float)$stock["cantidad"];
+                                    if ($consumo > $disp + 0.0000001)
+                                        $error = "Stock insuficiente. Disponible: " . $disp;
+                                }
+                            }
+                            if ($error === "") {
+                                if ($aplicar_lista_existente) {
+                                    foreach ($carrito as &$it) {
+                                        $precio_lista_item_info = ListaPrecio::precio_producto_cargado((int)$it["id_producto"], (int)$datos_form["id_lista_precio"]);
+                                        $precio_lista_item = $precio_lista_item_info !== null ? (float)$precio_lista_item_info["precio"] : null;
+                                        if ($precio_lista_item !== null && $precio_lista_item > 0) {
+                                            $it["precio_unit"] = $precio_lista_item;
+                                        }
+                                    }
+                                    unset($it);
+                                }
+                                $carrito[] = ["id_producto" => $id_producto, "nombre" => (string)$prod["nombre"], "cantidad" => $cantidad, "precio_unit" => $precio_unit, "descuento" => $descuento];
+                                $this->guardar_carrito($carrito);
+                                $this->guardar_form_venta([
+                                    "id_cliente" => $datos_form["id_cliente"],
+                                    "buscar_cliente" => $datos_form["buscar_cliente"],
+                                    "id_producto" => "",
+                                    "cantidad" => 1,
+                                    "descuento" => 0,
+                                    "precio_unit" => "",
+                                    "tipo_comprobante" => $datos_form["tipo_comprobante"],
+                                    "id_lista_precio" => $datos_form["id_lista_precio"],
+                                    "buscar_producto" => ""
+                                ]);
+                                $total = $this->calcular_total_carrito($carrito);
+                                $isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string)$_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+                                if ($isAjax) {
+                                    header('Content-Type: application/json; charset=utf-8');
+                                    echo json_encode([
+                                        "success" => true,
+                                        "carrito_html" => $this->render_carrito_rows($carrito),
+                                        "total" => moneda_para_mostrar($total),
+                                        "items" => count($carrito)
+                                    ]);
+                                    return;
+                                }
+                                flash_ok("Producto agregado al carrito.");
+                                redirigir("index.php?c=ventas&a=nueva");
+                            }
+                        }
+                    }
+                }
+            } else
+                $error = "Acceso inválido.";
+            if ($error !== "") {
+                $isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string)$_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+                if ($isAjax) {
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode(["success" => false, "error" => $error]);
+                    return;
+                }
+                flash_error($error);
+                $this->guardar_form_venta($datos_form ?? []);
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+        }
+    }
+
+    public function aplicar_lista(): void {
+        if ($this->permiso()) {
+            if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
+                flash_error("Acceso invalido.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+            $id_lista_precio = (int)obtener_post("id_lista_precio", ListaPrecio::id_predeterminada());
+            $carrito = $this->obtener_carrito();
+            if (count($carrito) === 0) {
+                flash_error("No hay productos cargados para aplicar la lista.");
+            } else {
+                foreach ($carrito as &$it) {
+                    $id_producto = (int)($it["id_producto"] ?? 0);
+                    $precio_lista_item_info = ListaPrecio::precio_producto_cargado($id_producto, $id_lista_precio);
+                    $precio_lista_item = $precio_lista_item_info !== null ? (float)$precio_lista_item_info["precio"] : null;
+                    if ($precio_lista_item !== null && $precio_lista_item > 0) {
+                        $it["precio_unit"] = $precio_lista_item;
+                    }
+                }
+                unset($it);
+                $this->guardar_carrito($carrito);
+                flash_ok("Lista de precios aplicada a los productos cargados.");
+            }
+            $this->guardar_form_venta([
+                "id_cliente" => (int)obtener_post("id_cliente", 1),
+                "buscar_cliente" => trim((string)obtener_post("buscar_cliente", "")),
+                "id_producto" => "",
+                "cantidad" => 1,
+                "descuento" => 0,
+                "precio_unit" => "",
+                "tipo_comprobante" => (int)obtener_post("tipo_comprobante", 98),
+                "id_lista_precio" => $id_lista_precio,
+                "buscar_producto" => ""
+            ]);
+            redirigir("index.php?c=ventas&a=nueva");
+        }
+    }
+
+    public function quitar(): void {
+        if ($this->permiso()) {
+            $idx = (int)obtener_get("idx", -1);
+            $id_producto = (int)obtener_get("id_producto", 0);
+            $carrito = $this->obtener_carrito();
+            $nuevo = [];
+            foreach ($carrito as $i => $it) {
+                if (($idx >= 0 && $i !== $idx) || ($idx < 0 && (int)$it["id_producto"] !== $id_producto))
+                    $nuevo[] = $it;
+            }
+            $this->guardar_carrito($nuevo);
+            flash_ok("Item quitado del carrito.");
+            redirigir("index.php?c=ventas&a=nueva");
+        }
+    }
+
+    public function actualizar_item(): void {
+        if ($this->permiso()) {
+            if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
+                flash_error("Acceso invalido.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+            $idx = (int)obtener_post("idx", -1);
+            $carrito = $this->obtener_carrito();
+            if ($idx < 0 || !isset($carrito[$idx])) {
+                flash_error("Item invalido.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+
+            $cantidad = parsear_numero_form(obtener_post("cantidad", 0), 0);
+            $precio_unit = parsear_numero_form(obtener_post("precio_unit", 0), 0);
+            $descuento = parsear_numero_form(obtener_post("descuento", 0), 0);
+            if ($cantidad <= 0) {
+                flash_error("La cantidad debe ser mayor a cero.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+            if ($precio_unit < 0)
+                $precio_unit = 0;
+            if ($descuento < 0)
+                $descuento = 0;
+            if ($descuento > 100)
+                $descuento = 100;
+
+            $item = $carrito[$idx];
+            $id_producto = (int)($item["id_producto"] ?? 0);
+            $prod = Venta::obtener_producto_para_venta($id_producto);
+            if ($prod === null || (int)$prod["activo"] !== 1) {
+                flash_error("Producto no disponible.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+            $factor = (float)($prod["factor_conversion"] ?? 0);
+            if ($factor < 0)
+                $factor = 0;
+            $id_stock_consumo = Venta::obtener_id_stock_consumo($prod);
+            if ($this->controlar_stock_ventas() && $id_stock_consumo !== null) {
+                $stock = Venta::obtener_stock_por_id($id_stock_consumo);
+                if ($stock === null) {
+                    flash_error("Stock no encontrado para el producto.");
+                    redirigir("index.php?c=ventas&a=nueva");
+                }
+                $consumo = Venta::calcular_consumo_stock($cantidad, $factor);
+                foreach ($carrito as $i => $item_cargado) {
+                    if ($i !== $idx && (int)($item_cargado["id_producto"] ?? 0) === $id_producto)
+                        $consumo += Venta::calcular_consumo_stock((float)($item_cargado["cantidad"] ?? 0), $factor);
+                }
+                $disp = (float)$stock["cantidad"];
+                if ($consumo > $disp + 0.0000001) {
+                    flash_error("Stock insuficiente. Disponible: " . $disp);
+                    redirigir("index.php?c=ventas&a=nueva");
+                }
+            }
+
+            $carrito[$idx]["cantidad"] = $cantidad;
+            $carrito[$idx]["precio_unit"] = $precio_unit;
+            $carrito[$idx]["descuento"] = $descuento;
+            $this->guardar_carrito($carrito);
+            flash_ok("Item actualizado.");
+            redirigir("index.php?c=ventas&a=nueva");
+        }
+    }
+
+    public function editar_item(): void {
+        if ($this->permiso()) {
+            $idx = (int)obtener_get("idx", -1);
+            $carrito = $this->obtener_carrito();
+            if ($idx < 0 || !isset($carrito[$idx])) {
+                flash_error("Item invalido.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+
+            $item = $carrito[$idx];
+            unset($carrito[$idx]);
+            $carrito = array_values($carrito);
+            $this->guardar_carrito($carrito);
+
+            $form = $this->obtener_form_venta();
+            $form["id_producto"] = (string)($item["id_producto"] ?? "");
+            $form["cantidad"] = (float)($item["cantidad"] ?? 1);
+            $form["descuento"] = (float)($item["descuento"] ?? 0);
+            $form["precio_unit"] = numero_para_input($item["precio_unit"] ?? 0, 2);
+            $form["buscar_producto"] = (string)($item["nombre"] ?? "");
+            $this->guardar_form_venta($form);
+
+            flash_ok("Item listo para modificar. Ajusta los campos y agregalo de nuevo.");
+            redirigir("index.php?c=ventas&a=nueva");
+        }
+    }
+
+    public function vaciar(): void {
+        if ($this->permiso()) {
+            $this->vaciar_carrito_interno();
+            flash_ok("Carrito vaciado.");
+            redirigir("index.php?c=ventas&a=nueva");
+        }
+    }
+
+    public function confirmar(): void {
+        if ($this->permiso()) {
+            $error = "";
+            if ($_SERVER["REQUEST_METHOD"] === "POST") {
+                $csrf = obtener_post("csrf", "");
+                if (!csrf_valido($csrf))
+                    $error = "Token inválido. Recargá la página.";
+                else {
+                    iniciar_sesion();
+                    $id_usuario = (int)($_SESSION["usuario_logueado"]["id"] ?? 0);
+                    $id_cliente = (int)obtener_post("id_cliente", 1);
+                    $buscar_cliente = trim((string)obtener_post("buscar_cliente", ""));
+                    $tipo_comprobante = (int)obtener_post("tipo_comprobante", 98);
+                    $forma_pago = strtolower(trim((string)obtener_post("forma_pago", "contado")));
+                    $imprimir_ticket = (int)obtener_post("imprimir_ticket", 0) === 1;
+                    $cc_cuotas = max(1, (int)obtener_post("cc_cuotas", 1));
+                    $cc_vencimientos = $_POST["cc_vencimientos"] ?? [];
+                    if (!is_array($cc_vencimientos))
+                        $cc_vencimientos = [];
+                    $tipos_disponibles = FacturaFiscal::tipos_comprobante();
+                    if (!isset($tipos_disponibles[$tipo_comprobante]))
+                        $tipo_comprobante = 98;
+                    $tipo_info = FacturaFiscal::tipo_comprobante($tipo_comprobante);
+                    if ($id_cliente <= 0)
+                        $id_cliente = 1;
+                    if (in_array((string)$tipo_info["operacion"], ["nota_credito", "nota_debito", "nota_credito_exportacion", "nota_debito_exportacion"], true)) {
+                        $error = "Las notas de credito/debito deben referenciar un comprobante autorizado. Falta cargar el modulo de comprobante asociado.";
+                    } else if ((string)$tipo_info["operacion"] === "exportacion") {
+                        $error = "Factura E requiere datos de exportacion (pais, CUIT pais, moneda, incoterms y datos aduaneros si corresponden). Falta cargar el modulo de exportacion.";
+                    } else if ((string)$tipo_info["operacion"] !== "presupuesto") {
+                        $cliente_factura = Cliente::buscar_por_id($id_cliente);
+                        if ($cliente_factura !== null) {
+                            $error = "Para Factura A seleccioná un cliente con datos fiscales.";
+                            $error = FacturaFiscal::validar_cliente_para_comprobante($tipo_comprobante, $cliente_factura);
+                        }
+                    }
+                    if ($error === "" && (string)$tipo_info["operacion"] === "presupuesto") {
+                        $carrito = $this->obtener_carrito();
+                        $r = Presupuesto::confirmar($id_cliente, $id_usuario, $carrito);
+                        if ($r["ok"] === true) {
+                            $id_presupuesto = (int)$r["id_presupuesto"];
+                            $this->vaciar_carrito_interno();
+                            $this->guardar_form_venta([]);
+                            $ok_pdf = $this->generar_pdf_presupuesto($id_presupuesto);
+                            if ($ok_pdf)
+                                flash_ok("Presupuesto generado. No descuenta stock ni se envia a ARCA.");
+                            else
+                                flash_ok("Presupuesto generado. No se pudo generar PDF: ver logs.");
+                            if ($imprimir_ticket)
+                                redirigir("index.php?c=ventas&a=presupuesto_ticket&auto_print=1&id=" . $id_presupuesto);
+                            redirigir("index.php?c=ventas&a=nueva");
+                        } else
+                            $error = (string)$r["error"];
+                    }
+                    if ($error === "" && (string)$tipo_info["operacion"] !== "presupuesto") {
+                        $carrito = $this->obtener_carrito();
+                        $r = Venta::confirmar_venta($id_cliente, $id_usuario, $carrito);
+                        if ($r["ok"] === true) {
+                            $id_venta = (int)$r["id_venta"];
+                            $this->vaciar_carrito_interno();
+                            $this->guardar_form_venta([]);
+                            $es_fiscal = (($tipo_info["fiscal"] ?? true) === true);
+                            $ok_fiscal = true;
+                            if ($es_fiscal)
+                                $ok_fiscal = FacturaFiscal::crear_pendiente_para_venta($id_venta, (string)$tipo_info["operacion"], $tipo_comprobante);
+                            if ($forma_pago === "cuenta_corriente") {
+                                $total_cc = $this->calcular_total_carrito($carrito);
+                                $concepto_cc = "Venta #" . $id_venta;
+                                $primer_vto = trim((string)($cc_vencimientos[0] ?? date("Y-m-d")));
+                                $ok_cc = CuentaCorriente::crear($id_cliente, $concepto_cc, $total_cc, $cc_cuotas, $primer_vto, $id_venta, $cc_vencimientos);
+                                if (!$ok_cc)
+                                    registrar_log("Cuenta corriente venta", "No se pudo crear cuenta para venta $id_venta");
+                            }
+                            $ok_pdf = $this->generar_pdf_comprobante($id_venta, $tipo_comprobante);
+                            if ($ok_pdf && $ok_fiscal && $es_fiscal)
+                                flash_ok("Venta confirmada. PDF generado y factura fiscal en cola.");
+                            else if ($ok_pdf && !$es_fiscal)
+                                flash_ok("Factura X generada. Descuenta stock y no se envia a AFIP.");
+                            else if ($ok_pdf)
+                                flash_ok("Venta confirmada. PDF generado. Revisar cola fiscal.");
+                            else
+                                flash_ok("Venta confirmada. Revisar PDF y cola fiscal en logs.");
+                            if ($imprimir_ticket)
+                                redirigir("index.php?c=ventas&a=ticket&auto_print=1&id=" . $id_venta);
+                            redirigir("index.php?c=ventas&a=lista");
+                        } else
+                            $error = (string)$r["error"];
+                    }
+                }
+            } else
+                $error = "Acceso inválido.";
+            if ($error !== "") {
+                flash_error($error);
+                $this->guardar_form_venta([
+                    "id_cliente" => $id_cliente ?? 1,
+                    "buscar_cliente" => $buscar_cliente ?? "",
+                    "id_producto" => "",
+                    "cantidad" => 1,
+                    "descuento" => 0,
+                    "tipo_comprobante" => $tipo_comprobante ?? 98,
+                    "buscar_producto" => ""
+                ]);
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+        }
+    }
+
+    public function ticket(): void {
+        if ($this->permiso()) {
+            $id_venta = (int)obtener_get("id", 0);
+            if ($id_venta <= 0) {
+                flash_error("Venta invalida.");
+                redirigir("index.php?c=ventas&a=lista");
+            }
+
+            $datos = $this->obtener_datos_comprobante($id_venta);
+            if ($datos === null) {
+                flash_error("Venta invalida.");
+                redirigir("index.php?c=ventas&a=lista");
+            }
+
+            // Regenera el PDF para mantener el archivo viejo actualizado,
+            // pero muestra la versión HTML con botones de impresión.
+            $this->generar_pdf_comprobante($id_venta, (int)($datos["venta"]["tipo_comprobante"] ?? 98));
+            $auto_print = (int)obtener_get("auto_print", 0) === 1;
+            echo $this->html_comprobante($datos["venta"], $datos["items"], false, $auto_print);
+        }
+    }
+
+    public function pdf(): void {
+        if ($this->permiso()) {
+            $id_venta = (int)obtener_get("id", 0);
+            if ($id_venta <= 0) {
+                flash_error("Venta invalida.");
+                redirigir("index.php?c=ventas&a=lista");
+            }
+            $datos = $this->obtener_datos_comprobante($id_venta);
+            if ($datos === null) {
+                flash_error("Venta invalida.");
+                redirigir("index.php?c=ventas&a=lista");
+            }
+            $ok = $this->generar_pdf_comprobante($id_venta, (int)($datos["venta"]["tipo_comprobante"] ?? 98));
+            $base = realpath(__DIR__ . "/../..");
+            $archivo = $base !== false ? $base . "/almacenamiento/pdf/venta_" . $id_venta . ".pdf" : "";
+            if (!$ok || $archivo === "" || !is_file($archivo)) {
+                flash_error("No se pudo generar el PDF.");
+                redirigir("index.php?c=ventas&a=ticket&id=" . $id_venta);
+            }
+            header("Content-Type: application/pdf");
+            header("Content-Disposition: attachment; filename=venta_" . $id_venta . ".pdf");
+            header("Content-Length: " . filesize($archivo));
+            readfile($archivo);
+            return;
+        }
+    }
+
+    public function presupuesto_pdf(): void {
+        if ($this->permiso()) {
+            $id_presupuesto = (int)obtener_get("id", 0);
+            if ($id_presupuesto <= 0) {
+                flash_error("Presupuesto invalido.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+            $presupuesto = Presupuesto::buscar($id_presupuesto);
+            if (!$presupuesto) {
+                flash_error("Presupuesto invalido.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+            $ok = $this->generar_pdf_presupuesto($id_presupuesto);
+            $base = realpath(__DIR__ . "/../..");
+            $archivo = $base !== false ? $base . "/almacenamiento/pdf/presupuesto_" . $id_presupuesto . ".pdf" : "";
+            if (!$ok || $archivo === "" || !is_file($archivo)) {
+                flash_error("No se pudo generar el PDF.");
+                redirigir("index.php?c=ventas&a=presupuesto_ticket&id=" . $id_presupuesto);
+            }
+            header("Content-Type: application/pdf");
+            header("Content-Disposition: attachment; filename=presupuesto_" . $id_presupuesto . ".pdf");
+            header("Content-Length: " . filesize($archivo));
+            readfile($archivo);
+            return;
+        }
+    }
+
+    public function presupuesto_ticket(): void {
+        if ($this->permiso()) {
+            $id_presupuesto = (int)obtener_get("id", 0);
+            if ($id_presupuesto <= 0) {
+                flash_error("Presupuesto invalido.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+            $presupuesto = Presupuesto::buscar($id_presupuesto);
+            if (!$presupuesto) {
+                flash_error("Presupuesto invalido.");
+                redirigir("index.php?c=ventas&a=nueva");
+            }
+            $items = Presupuesto::obtener_detalle($id_presupuesto);
+            $auto_print = (int)obtener_get("auto_print", 0) === 1;
+            echo $this->html_presupuesto($presupuesto, $items, false, $auto_print);
+        }
+    }
+
+    public function impresoras_json(): void {
+        if ($this->permiso()) {
+            $impresoras = [];
+            $salida = @shell_exec('powershell -NoProfile -Command "Get-Printer | Select-Object -ExpandProperty Name"');
+            if (is_string($salida) && trim($salida) !== "") {
+                foreach (preg_split('/\r?\n/', $salida) as $linea) {
+                    $nombre = trim($linea);
+                    if ($nombre !== "")
+                        $impresoras[] = $nombre;
+                }
+            }
+            header("Content-Type: application/json; charset=utf-8");
+            echo json_encode(["ok" => true, "impresoras" => array_values(array_unique($impresoras))], JSON_UNESCAPED_UNICODE);
+        }
+    }
+
+    private function obtener_datos_comprobante(int $id_venta, int $tipo_comprobante_manual = 98): ?array {
+        $pdo = obtener_pdo();
+        if ($pdo === null)
+            return null;
+
+        Cliente::asegurar_columnas_fiscales($pdo);
+        $sql = "SELECT v.id, v.fecha, v.total, v.id_cliente,
+                       c.nombre AS cliente_nombre, c.dni AS cliente_documento, c.tipo_documento, c.condicion_iva, c.direccion AS cliente_direccion,
+                       u.usuario AS usuario_nombre,
+                       COALESCE(f.tipo_comprobante, ?) AS tipo_comprobante, f.punto_venta, f.numero_comprobante, f.cae, f.cae_vencimiento, f.estado AS fiscal_estado, f.respuesta_json
+                FROM ventas v
+                INNER JOIN clientes c ON c.id = v.id_cliente
+                INNER JOIN usuarios u ON u.id = v.id_usuario
+                LEFT JOIN fiscal_comprobantes f ON f.id_venta = v.id
+                WHERE v.id = ? LIMIT 1";
+        $st = $pdo->prepare($sql);
+        $st->execute([$tipo_comprobante_manual, $id_venta]);
+        $venta = $st->fetch();
+        if (!$venta)
+            return null;
+
+        return [
+            "venta" => $venta,
+            "items" => Venta::obtener_detalle($id_venta),
+        ];
+    }
+
+    private function generar_pdf_presupuesto(int $id_presupuesto): bool {
+        $ok = false;
+        try {
+            $base = __DIR__ . "/../../";
+            $autoload = $base . "vendor/autoload.php";
+            if (file_exists($autoload)) {
+                require_once $autoload;
+                $presupuesto = Presupuesto::buscar($id_presupuesto);
+                if ($presupuesto) {
+                    $items = Presupuesto::obtener_detalle($id_presupuesto);
+                    $html = $this->html_presupuesto($presupuesto, $items);
+                    $dompdf = new \Dompdf\Dompdf();
+                    $dompdf->loadHtml($html, "UTF-8");
+                    $dompdf->setPaper([0, 0, 226.77, 900], "portrait");
+                    $dompdf->render();
+                    $carpeta = $base . "almacenamiento/pdf";
+                    if (!is_dir($carpeta))
+                        @mkdir($carpeta, 0777, true);
+                    $archivo = $carpeta . "/presupuesto_" . $id_presupuesto . ".pdf";
+                    $ok = (bool)@file_put_contents($archivo, $dompdf->output());
+                }
+            }
+        } catch (Throwable $e) {
+            $ok = false;
+            registrar_log("PDF Presupuesto", $e->getMessage());
+        }
+        return $ok;
+    }
+
+    private function generar_pdf_comprobante(int $id_venta, int $tipo_comprobante_manual = 98): bool {
+        $ok = false;
+        try {
+            $base = __DIR__ . "/../../";
+            $autoload = $base . "vendor/autoload.php";
+            if (file_exists($autoload)) {
+                require_once $autoload;
+                $datos = $this->obtener_datos_comprobante($id_venta, $tipo_comprobante_manual);
+                if ($datos !== null) {
+                    $venta = $datos["venta"];
+                    $items = $datos["items"];
+                    $html = $this->html_comprobante($venta, $items, true); // genera el HTML para PDF
+                    $dompdf = new \Dompdf\Dompdf(); // crea el generador de pdf
+                    $dompdf->loadHtml($html, "UTF-8"); // paso el html a generar el pdf
+                    $formato_impresion = $this->formato_impresion_ticket();
+                    if ($formato_impresion === "a4")
+                        $dompdf->setPaper("A4", "portrait");
+                    else if ($formato_impresion === "58")
+                        $dompdf->setPaper([0, 0, 164.41, 900], "portrait"); // 58 mm
+                    else
+                        $dompdf->setPaper([0, 0, 226.77, 900], "portrait"); // 80 mm
+                    $dompdf->render(); // convierte a pdf interno, en memoria
+                    $carpeta = $base . "almacenamiento/pdf";
+                    if (!is_dir($carpeta))
+                        @mkdir($carpeta, 0777, true);
+                    $archivo = $carpeta . "/venta_" . $id_venta . ".pdf";
+                    $bytes = $dompdf->output(); // obtiene el contenido del pdf en binario
+                    $ok = (bool)@file_put_contents($archivo, $bytes); // guarda en la dirección indicada
+                }
+            } else
+                registrar_log("PDF", "No existe vendor/autoload.php. Instalá dompdf con Composer.");
+        } catch (Throwable $e) {
+            $ok = false;
+            registrar_log("PDF", $e->getMessage());
+        }
+        return $ok;
+    }
+
+    private function formato_impresion_ticket(): string {
+        $config = ConfiguracionSistema::obtener();
+        $formato = (string)($config["formato_impresion_ticket"] ?? "80");
+        return in_array($formato, ["a4", "80", "58"], true) ? $formato : "80";
+    }
+
+    private function medidas_impresion_ticket(): array {
+        $formato = $this->formato_impresion_ticket();
+        if ($formato === "a4") {
+            return [
+                "page_size" => "A4 portrait",
+                "page_margin" => "8mm",
+                "ticket_width" => "190mm",
+                "ticket_padding" => "0",
+                "body_width" => "auto",
+                "actions_width" => "190mm",
+            ];
+        }
+        $ancho = $formato === "58" ? "58mm" : "80mm";
+        return [
+            "page_size" => $ancho . " auto",
+            "page_margin" => "0",
+            "ticket_width" => $ancho,
+            "ticket_padding" => "3mm 3mm 4mm",
+            "body_width" => "auto",
+            "actions_width" => $ancho,
+        ];
+    }
+
+    private function html_comprobante(array $venta, array $items, bool $para_pdf = true, bool $auto_print = false): string {
+        $id = (int)$venta["id"];
+        $fecha = htmlspecialchars((string)$venta["fecha"]);
+        $cliente = htmlspecialchars((string)$venta["cliente_nombre"]);
+        $cliente_doc = htmlspecialchars(trim((string)($venta["tipo_documento"] ?? "") . " " . (string)($venta["cliente_documento"] ?? "")));
+        $usuario = htmlspecialchars((string)$venta["usuario_nombre"]);
+        $total = htmlspecialchars(moneda_para_mostrar($venta["total"] ?? 0));
+        $tipo_comprobante = (int)($venta["tipo_comprobante"] ?? 98);
+        $tipo_info = FacturaFiscal::tipo_comprobante($tipo_comprobante);
+        $letra = htmlspecialchars((string)$tipo_info["letra"]);
+        $es_factura_x = ($tipo_comprobante === 98);
+        $titulo = htmlspecialchars($es_factura_x ? "Ticket" : (string)$tipo_info["texto"]);
+        $es_fiscal = (($tipo_info["fiscal"] ?? true) === true);
+        $config = ConfiguracionSistema::obtener_configuracion_fiscal();
+        $empresa = $config["empresa"] ?? [];
+        $comp_def = $config["comprobante_defecto"] ?? [];
+        
+        $razon = htmlspecialchars((string)($empresa["razon_social"] ?? "Comercio"));
+        $cuit = htmlspecialchars((string)($empresa["cuit"] ?? ""));
+        $domicilio = htmlspecialchars((string)($empresa["domicilio"] ?? ""));
+        $telefonos = htmlspecialchars((string)($empresa["telefonos"] ?? ""));
+        $email = htmlspecialchars((string)($empresa["email"] ?? ""));
+        $pie_ticket = nl2br(htmlspecialchars((string)($empresa["texto_pie_ticket"] ?? "")));
+        
+        $pv = (int)($venta["punto_venta"] ?? ($empresa["punto_venta"] ?? 1));
+        $numero = (int)($venta["numero_comprobante"] ?? 0);
+        $cae = htmlspecialchars((string)($venta["cae"] ?? ""));
+        $cae_vto = htmlspecialchars((string)($venta["cae_vencimiento"] ?? ""));
+        
+        if ($es_factura_x)
+            $numero_txt = "";
+        else if (!$es_fiscal)
+            $numero_txt = "INTERNO-" . str_pad((string)$id, 8, "0", STR_PAD_LEFT);
+        else
+            $numero_txt = $numero > 0 ? str_pad((string)$pv, 5, "0", STR_PAD_LEFT) . "-" . str_pad((string)$numero, 8, "0", STR_PAD_LEFT) : "PENDIENTE";
+        
+        // Construir filas de items
+        $filas_html = "";
+        foreach ($items as $it) {
+            $p = htmlspecialchars((string)$it["producto_nombre"]);
+            $cant = htmlspecialchars((string)$it["cantidad"]);
+            $pu = htmlspecialchars(numero_precio_para_exportar($it["precio_unit"] ?? 0));
+            $desc_raw = (float)($it["descuento"] ?? 0);
+            $desc_fmt = (abs($desc_raw - round($desc_raw)) < 0.00001)
+                ? (string)((int)round($desc_raw))
+                : rtrim(rtrim(number_format($desc_raw, 2, ".", ""), "0"), ".");
+            $desc = htmlspecialchars($desc_fmt);
+            $sub = htmlspecialchars(numero_para_mostrar($it["subtotal"] ?? 0));
+            $filas_html .= "<div class='item-row'><div class='item-desc'><strong>$p</strong><br><span class='item-detail'>$cant x $pu</span></div><div class='item-price'>$sub</div></div>";
+            if ($desc_raw > 0)
+                $filas_html .= "<div class='item-desc small'>Desc: $desc%</div>";
+        }
+        
+        $medidas = $this->medidas_impresion_ticket();
+        $acciones_html = $para_pdf ? "" : "<div class='actions'><button type='button' onclick='window.print()'>Imprimir</button><button type='button' onclick='window.close()'>Cerrar</button></div>";
+        $auto_print_html = (!$para_pdf && $auto_print) ? "<script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 250); });</script>" : "";
+        
+        $empresa_extra_html = "";
+        if ($cuit && !$es_factura_x) $empresa_extra_html .= "<div class='center small'>CUIT: $cuit</div>";
+        if ($domicilio) $empresa_extra_html .= "<div class='center small'>$domicilio</div>";
+        if ($telefonos) $empresa_extra_html .= "<div class='center small'>Tel: $telefonos</div>";
+        if ($email) $empresa_extra_html .= "<div class='center small'>$email</div>";
+        
+        $ticket_status = $es_fiscal && $cae === "" ? "<div class='center warning'>CAE PENDIENTE</div>" : "";
+        if (!$es_fiscal) $ticket_status = "<div class='center warning'>DOCUMENTO INTERNO</div>";
+        if ($es_factura_x) $ticket_status = "";
+        $numero_html = $es_factura_x ? "" : "<div class='row'><span>Nro.</span><strong>$numero_txt</strong></div>";
+        $cliente_doc_html = ($es_factura_x || $cliente_doc === "") ? "" : "<div class='row'><span>Doc.</span><strong>$cliente_doc</strong></div>";
+        
+        return "<!doctype html>
+<html lang='es'>
+<head>
+  <meta charset='utf-8'>
+  <title>$titulo" . ($numero_txt !== "" ? " - $numero_txt" : "") . "</title>
+  <style>
+    @page { size: " . $medidas["page_size"] . "; margin: " . $medidas["page_margin"] . "; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #fff; font-family: Consolas, 'Courier New', monospace; color: #000; }
+    .ticket { width: " . $medidas["ticket_width"] . "; max-width: 100%; padding: " . $medidas["ticket_padding"] . "; margin: 0 auto; }
+    .center { text-align: center; }
+    .brand { font-weight: 800; font-size: 13px; line-height: 1.05; margin-bottom: 2px; }
+    .title { font-weight: 800; font-size: 12px; margin: 5px 0; }
+    .small { font-size: 9px; line-height: 1.2; }
+    .nowrap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .line { border-top: 1px dashed #000; margin: 4px 0; }
+    .row { display: flex; justify-content: space-between; gap: 4px; font-size: 10px; line-height: 1.3; }
+    .row span { flex: 0 0 auto; font-weight: 600; }
+    .row strong { flex: 1 1 auto; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item-row { display: flex; justify-content: space-between; gap: 4px; font-size: 10px; line-height: 1.25; }
+    .item-desc { flex: 1 1 auto; }
+    .item-detail { font-size: 9px; color: #666; display: block; }
+    .item-price { flex: 0 0 auto; text-align: right; font-weight: 600; white-space: nowrap; }
+    .item-desc.small { font-size: 9px; color: #666; }
+    .block-title { font-weight: 800; font-size: 10px; margin-top: 4px; }
+    .block-text { font-size: 9px; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+    .total-row { display: flex; justify-content: space-between; gap: 4px; font-size: 11px; font-weight: 800; margin: 4px 0; }
+    .total-row strong { text-align: right; }
+    .warning { border: 1px solid #000; padding: 2px; font-weight: 600; font-size: 9px; }
+    .actions { width: " . $medidas["actions_width"] . "; max-width: 100%; padding: 6px; display: flex; gap: 6px; margin: 0 auto 6px; }
+    button, .actions a { border: 0; border-radius: 6px; padding: 6px 8px; background: #0e7490; color: white; font-weight: 600; cursor: pointer; font-size: 9px; text-decoration: none; display: inline-flex; align-items: center; }
+    @media print { .actions { display: none; } body { width: " . $medidas["body_width"] . "; } .ticket { margin: 0 auto; } }
+  </style>
+</head>
+<body>
+  $acciones_html
+  <div class='ticket'>
+    <div class='center brand'>" . strtoupper($razon) . "</div>
+    $empresa_extra_html
+    <div class='line'></div>
+    <div class='center title'>$titulo</div>
+    <div class='line'></div>
+    $numero_html
+    <div class='row'><span>Fecha</span><strong>$fecha</strong></div>
+    <div class='row'><span>Cliente</span><strong>$cliente</strong></div>
+    $cliente_doc_html
+    <div class='row'><span>Vendedor</span><strong>$usuario</strong></div>
+    <div class='line'></div>
+    <div class='block-title'>Detalle</div>
+    $filas_html
+    <div class='line'></div>
+    <div class='total-row'><span>Total</span><strong>$total</strong></div>
+    $ticket_status
+    " . ($pie_ticket !== "" ? "<div class='line'></div><div class='center small'>$pie_ticket</div>" : "") . "
+  </div>
+  $auto_print_html
+</body>
+</html>";
+    }
+
+    private function html_presupuesto(array $presupuesto, array $items, bool $para_pdf = true, bool $auto_print = false): string {
+        $id = (int)$presupuesto["id"];
+        $fecha = htmlspecialchars((string)$presupuesto["fecha"]);
+        $cliente = htmlspecialchars((string)$presupuesto["cliente_nombre"]);
+        $usuario = htmlspecialchars((string)$presupuesto["usuario_nombre"]);
+        $total = htmlspecialchars(moneda_para_mostrar($presupuesto["total"] ?? 0));
+        $config = ConfiguracionSistema::obtener_configuracion_fiscal();
+        $empresa = $config["empresa"] ?? [];
+        $razon = htmlspecialchars((string)($empresa["razon_social"] ?? ""));
+        $cuit = htmlspecialchars((string)($empresa["cuit"] ?? ""));
+        $domicilio = htmlspecialchars((string)($empresa["domicilio"] ?? ""));
+        $telefonos = htmlspecialchars((string)($empresa["telefonos"] ?? ""));
+        $pie_ticket = nl2br(htmlspecialchars((string)($empresa["texto_pie_ticket"] ?? "")));
+        $logo_html = "";
+        $logo_rel = trim((string)($empresa["logo_ticket"] ?? ""));
+        if ($logo_rel !== "") {
+            $logo_path = realpath(__DIR__ . "/../../" . $logo_rel);
+            $base_path = realpath(__DIR__ . "/../../");
+            if ($logo_path !== false && $base_path !== false && str_starts_with($logo_path, $base_path) && is_file($logo_path)) {
+                $ext = strtolower(pathinfo($logo_path, PATHINFO_EXTENSION));
+                $mime = ["jpg" => "image/jpeg", "jpeg" => "image/jpeg", "png" => "image/png", "gif" => "image/gif"][$ext] ?? "";
+                $bytes_logo = @file_get_contents($logo_path);
+                if ($mime !== "" && is_string($bytes_logo) && $bytes_logo !== "")
+                    $logo_html = "<div class='center logo-wrap'><img class='logo' src='data:$mime;base64," . base64_encode($bytes_logo) . "'></div>";
+            }
+        }
+        $filas = "";
+        foreach ($items as $it) {
+            $p = htmlspecialchars((string)$it["producto_nombre"]);
+            $cant = htmlspecialchars((string)$it["cantidad"]);
+            $pu = htmlspecialchars(numero_precio_para_exportar($it["precio_unit"] ?? 0));
+            $desc = htmlspecialchars((string)$it["descuento"]);
+            $sub = htmlspecialchars(numero_para_mostrar($it["subtotal"] ?? 0));
+            $filas .= "<tr><td>$p<br><span>$cant x $pu Desc $desc%</span></td><td class='num'>$sub</td></tr>";
+        }
+        $medidas = $this->medidas_impresion_ticket();
+        $acciones_html = $para_pdf ? "" : "<div class='actions'><button type='button' onclick='window.print()'>Imprimir</button><button type='button' onclick='window.close()'>Cerrar</button></div>";
+        $auto_print_html = (!$para_pdf && $auto_print) ? "<script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 250); });</script>" : "";
+        return "<!doctype html>
+            <html lang='es'><head><meta charset='utf-8'><style>
+            @page { size: " . $medidas["page_size"] . "; margin: " . $medidas["page_margin"] . "; }
+            body { font-family: DejaVu Sans, sans-serif; font-size: 9px; color: #111; }
+            .actions { width: " . $medidas["actions_width"] . "; max-width: 100%; padding: 6px; display: flex; gap: 6px; margin: 0 auto 6px; }
+            .ticket { width: " . $medidas["ticket_width"] . "; max-width: 100%; padding: " . $medidas["ticket_padding"] . "; margin: 0 auto; }
+            button { border: 0; border-radius: 6px; padding: 6px 8px; background: #0e7490; color: white; font-weight: 600; cursor: pointer; font-size: 9px; }
+            .center { text-align: center; }
+            .logo-wrap { margin-bottom: 3px; }
+            .logo { max-width: 90px; max-height: 45px; object-fit: contain; }
+            .brand { font-size: 12px; font-weight: bold; }
+            .marca { width: 34px; height: 34px; border: 2px solid #111; margin: 4px auto; text-align: center; font-size: 25px; font-weight: bold; line-height: 34px; }
+            .sep { border-top: 1px dashed #111; margin: 5px 0; }
+            table { width: 100%; border-collapse: collapse; }
+            td { padding: 3px 0; border-bottom: 1px dotted #999; vertical-align: top; }
+            td span { font-size: 8px; color: #333; }
+            .num { text-align: right; white-space: nowrap; }
+            .total { display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; }
+            .legal { border: 1px solid #111; padding: 4px; text-align: center; font-weight: bold; }
+            @media print { .actions { display: none; } body { width: " . $medidas["body_width"] . "; } .ticket { margin: 0 auto; } }
+            </style></head><body>
+            $acciones_html
+            <div class='ticket'>
+            $logo_html
+            <div class='center brand'>$razon</div>
+            <div class='center'>CUIT $cuit</div>
+            " . ($domicilio !== "" ? "<div class='center'>$domicilio</div>" : "") . "
+            " . ($telefonos !== "" ? "<div class='center'>Tel: $telefonos</div>" : "") . "
+            <div class='marca'>X</div>
+            <div class='legal'>DOCUMENTO NO VALIDO COMO FACTURA</div>
+            <div class='center'><b>PRESUPUESTO #$id</b></div>
+            <div class='sep'></div>
+            <div><b>Fecha:</b> $fecha</div>
+            <div><b>Cliente:</b> $cliente</div>
+            <div><b>Vendedor:</b> $usuario</div>
+            <div class='sep'></div>
+            <table><tbody>$filas</tbody></table>
+            <div class='sep'></div>
+            <div class='total'><span>TOTAL</span><b>$total</b></div>
+            " . ($pie_ticket !== "" ? "<div class='sep'></div><div class='center'>$pie_ticket</div>" : "") . "
+            </div>
+            $auto_print_html
+            </body></html>";
+    }
+
+    private function leyenda_iva_receptor(string $condicion_iva, int $id_cliente): string {
+        $cond = trim($condicion_iva);
+        if ($id_cliente === 1 || $cond === "Consumidor Final" || $cond === "")
+            return "A CONSUMIDOR FINAL";
+        if ($cond === "Responsable Inscripto")
+            return "IVA RESPONSABLE INSCRIPTO";
+        if ($cond === "Exento")
+            return "IVA EXENTO";
+        if ($cond === "Monotributista")
+            return "RESPONSABLE MONOTRIBUTO";
+        if ($cond === "No Responsable")
+            return "NO RESPONSABLE IVA";
+        return strtoupper($cond);
+    }
+}

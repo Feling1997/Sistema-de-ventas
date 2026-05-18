@@ -1,0 +1,11 @@
+{
+    "visibles": [
+        "ventas",
+        "nueva_venta",
+        "clientes",
+        "stock",
+        "productos",
+        "reparaciones",
+        "usuarios"
+    ]
+}
