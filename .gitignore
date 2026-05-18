@@ -20,3 +20,11 @@
 # Sistema operativo
 .DS_Store
 Thumbs.db
+
+# Archivos pesados
+*.exe
+*.zip
+
+build_instalador_ventas_reparaciones/
+respaldos/
+reparaciones_python/python_runtime/
