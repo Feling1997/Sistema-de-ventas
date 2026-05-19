@@ -44,6 +44,8 @@ class ControladorUsuarios{
         if($this->permiso_admin()){
             $modo="crear";
             $u=["id"=>0,"usuario"=>"","rol"=>"VENDEDOR","activo"=>1];
+            $permisos_usuario = [];
+            $modulos_permisos = $this->modulos_para_permisos();
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/usuarios/formulario.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -63,6 +65,7 @@ class ControladorUsuarios{
                     $clave2 = (string)obtener_post("clave2", "");
                     $rol = (string)obtener_post("rol", "VENDEDOR");
                     $activo = (int)obtener_post("activo", 1);
+                    $permisos = $this->permisos_post();
                     if (texto_invalido($usuario) || texto_invalido($clave) || texto_invalido($clave2))
                         $error = "No se permite usuario/clave vacíos o placeholders.";
                     else {
@@ -75,7 +78,7 @@ class ControladorUsuarios{
                                 if(Usuario::usuario_existe($usuario))
                                     $error = "El usuario ya existe.";
                                 else{
-                                    $ok=Usuario::crear($usuario, $clave, $rol, $activo);
+                                    $ok=Usuario::crear_con_permisos($usuario, $clave, $rol, $activo, $rol === "ADMIN" ? [] : $permisos);
                                     if($ok){
                                         flash_ok("Usuario creado correctamente.");
                                         redirigir("index.php?c=usuarios&a=index");
@@ -92,6 +95,8 @@ class ControladorUsuarios{
                 flash_error($error);
                 $modo = "crear";
                 $u = ["id" => 0, "usuario" => $usuario ?? "", "rol" => $rol ?? "VENDEDOR", "activo" => $activo ?? 1];
+                $permisos_usuario = $permisos ?? [];
+                $modulos_permisos = $this->modulos_para_permisos();
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/usuarios/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -108,6 +113,8 @@ class ControladorUsuarios{
                 redirigir("index.php?c=usuarios&a=index");
             }else{
                 $modo="editar";
+                $permisos_usuario = Usuario::permisos_array($u["permisos"] ?? "[]");
+                $modulos_permisos = $this->modulos_para_permisos();
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/usuarios/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -128,6 +135,7 @@ class ControladorUsuarios{
                     $clave_nueva = (string)obtener_post("clave", "");
                     $rol = (string)obtener_post("rol", "VENDEDOR");
                     $activo = (int)obtener_post("activo", 1);
+                    $permisos = $this->permisos_post();
                     $u_actual=Usuario::buscar_por_id($id);
                     if($u_actual===null)
                         $error="Usuario no encontrado.";
@@ -150,12 +158,12 @@ class ControladorUsuarios{
                                             $error="Clave inválida";
                                         else{
                                             $hash=password_hash($clave_nueva, PASSWORD_DEFAULT);
-                                            $ok=Usuario::actualizar_con_clave($id, $usuario, $hash, $rol, $activo);
+                                            $ok=Usuario::actualizar_con_clave_permisos($id, $usuario, $hash, $rol, $activo, $rol === "ADMIN" ? [] : $permisos);
                                             if(!$ok)
                                                 $error="No se pudo actualizar el usuario (ver logs).";
                                         }
                                     }else{
-                                        $ok=Usuario::actualizar_sin_clave($id, $usuario, $rol, $activo);
+                                        $ok=Usuario::actualizar_sin_clave_permisos($id, $usuario, $rol, $activo, $rol === "ADMIN" ? [] : $permisos);
                                         if(!$ok)
                                             $error="No se pudo actualizar el usuario (ver logs).";
                                     }
@@ -174,6 +182,8 @@ class ControladorUsuarios{
                 flash_error($error);
                 $modo = "editar";
                 $u = ["id" => $id ?? 0, "usuario" => $usuario ?? "", "rol" => $rol ?? "VENDEDOR", "activo" => $activo ?? 1];
+                $permisos_usuario = $permisos ?? [];
+                $modulos_permisos = $this->modulos_para_permisos();
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/usuarios/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -209,5 +219,20 @@ class ControladorUsuarios{
                 }
             }
         }
+    }
+
+    private function permisos_post(): array {
+        $permisos = $_POST["permisos"] ?? [];
+        if (!is_array($permisos))
+            return ["__none"];
+        $permitidos = array_keys($this->modulos_para_permisos());
+        $limpios = array_values(array_intersect(array_map("strval", $permisos), $permitidos));
+        return count($limpios) > 0 ? $limpios : ["__none"];
+    }
+
+    private function modulos_para_permisos(): array {
+        $modulos = menu_modulos_base();
+        unset($modulos["inicio"], $modulos["usuarios"], $modulos["configuraciones"]);
+        return $modulos;
     }
 }

@@ -276,9 +276,10 @@ class ControladorStock {
             $formato = strtolower((string)obtener_get("formato", "html"));
             $items = Stock::listar_todos();
             $titulo = "Stock actual";
-            if ($formato === "csv") {
+            $base_archivo = "stock_actual";
+            if ($formato === "csv" || $formato === "xls" || $formato === "excel") {
                 header("Content-Type: text/csv; charset=utf-8");
-                header("Content-Disposition: attachment; filename=stock_actual_" . date("Ymd_His") . ".csv");
+                header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "csv") . "\"");
                 $out = fopen("php://output", "w");
                 if ($out !== false) {
                     fprintf($out, "\xEF\xBB\xBF");
@@ -290,12 +291,6 @@ class ControladorStock {
                 return;
             }
             $html = $this->html_stock($items, $titulo);
-            if ($formato === "xls" || $formato === "excel") {
-                header("Content-Type: application/vnd.ms-excel; charset=utf-8");
-                header("Content-Disposition: attachment; filename=stock_actual_" . date("Ymd_His") . ".xls");
-                echo $html;
-                return;
-            }
             if ($formato === "pdf") {
                 $autoload = __DIR__ . "/../../vendor/autoload.php";
                 if (file_exists($autoload)) {
@@ -305,7 +300,7 @@ class ControladorStock {
                     $dompdf->setPaper("A4", "portrait");
                     $dompdf->render();
                     header("Content-Type: application/pdf");
-                    header("Content-Disposition: attachment; filename=stock_actual_" . date("Ymd_His") . ".pdf");
+                    header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "pdf") . "\"");
                     echo $dompdf->output();
                     return;
                 }
@@ -340,22 +335,33 @@ class ControladorStock {
             }
             $formato = strtolower((string)obtener_get("formato", "html"));
             $id_lista = (int)obtener_get("id_lista_precio", 0);
+            if ($id_lista <= 0) {
+                flash_error("Selecciona una lista de precios cargada.");
+                redirigir("index.php?c=exportaciones&a=index");
+                return;
+            }
             $productos = $this->listar_productos_por_stock($id);
             $titulo = "Articulos de " . (string)($s["nombre"] ?? "stock");
-            if ($id_lista > 0) {
-                foreach (ListaPrecio::listar(true) as $lista) {
-                    if ((int)$lista["id"] === $id_lista)
-                        $titulo .= " - " . (string)$lista["nombre"];
-                }
-                foreach ($productos as &$p) {
-                    $precio_lista = ListaPrecio::precio_producto_cargado((int)($p["id"] ?? 0), $id_lista);
-                    $p["precio_final"] = ($precio_lista !== null && (float)$precio_lista["precio"] > 0) ? (float)$precio_lista["precio"] : 0;
-                }
-                unset($p);
+            $nombre_lista = "";
+            foreach (ListaPrecio::listar(true) as $lista) {
+                if ((int)$lista["id"] === $id_lista)
+                    $nombre_lista = (string)$lista["nombre"];
             }
-            if ($formato === "csv") {
+            if ($nombre_lista === "") {
+                flash_error("Selecciona una lista de precios cargada.");
+                redirigir("index.php?c=exportaciones&a=index");
+                return;
+            }
+            $titulo .= " - " . $nombre_lista;
+            $base_archivo = "articulos_stock_" . (string)($s["nombre"] ?? "stock") . "_" . $nombre_lista;
+            foreach ($productos as &$p) {
+                $precio_lista = ListaPrecio::precio_producto_cargado((int)($p["id"] ?? 0), $id_lista);
+                $p["precio_final"] = ($precio_lista !== null && (float)$precio_lista["precio"] > 0) ? (float)$precio_lista["precio"] : 0;
+            }
+            unset($p);
+            if ($formato === "csv" || $formato === "xls" || $formato === "excel") {
                 header("Content-Type: text/csv; charset=utf-8");
-                header("Content-Disposition: attachment; filename=articulos_stock_" . $id . "_" . date("Ymd_His") . ".csv");
+                header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "csv") . "\"");
                 $out = fopen("php://output", "w");
                 if ($out !== false) {
                     fprintf($out, "\xEF\xBB\xBF");
@@ -367,12 +373,6 @@ class ControladorStock {
                 return;
             }
             $html = $this->html_productos_stock($productos, $titulo, $s);
-            if ($formato === "xls" || $formato === "excel") {
-                header("Content-Type: application/vnd.ms-excel; charset=utf-8");
-                header("Content-Disposition: attachment; filename=articulos_stock_" . $id . "_" . date("Ymd_His") . ".xls");
-                echo $html;
-                return;
-            }
             if ($formato === "pdf") {
                 $autoload = __DIR__ . "/../../vendor/autoload.php";
                 if (file_exists($autoload)) {
@@ -382,7 +382,7 @@ class ControladorStock {
                     $dompdf->setPaper("A4", "portrait");
                     $dompdf->render();
                     header("Content-Type: application/pdf");
-                    header("Content-Disposition: attachment; filename=articulos_stock_" . $id . "_" . date("Ymd_His") . ".pdf");
+                    header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "pdf") . "\"");
                     echo $dompdf->output();
                     return;
                 }
@@ -407,23 +407,19 @@ class ControladorStock {
             $formato = strtolower((string)obtener_get("formato", "html"));
             $items = Stock::listar_faltantes($solo_minimo);
             $titulo = $solo_minimo ? "Pedido sugerido por stock minimo" : "Reporte completo de faltantes";
-            if ($formato === "csv") {
+            $base_archivo = $solo_minimo ? "pedido_sugerido_stock_minimo" : "faltantes_stock_completo";
+            if ($formato === "csv" || $formato === "xls" || $formato === "excel") {
                 header("Content-Type: text/csv; charset=utf-8");
-                header("Content-Disposition: attachment; filename=faltantes_stock.csv");
+                header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "csv") . "\"");
                 $out = fopen("php://output", "w");
-                fputcsv($out, ["Stock", "Cantidad", "Minimo", "Maximo", "Unidad", "Sugerido"]);
+                fprintf($out, "\xEF\xBB\xBF");
+                fputcsv($out, ["Stock", "Cantidad", "Minimo", "Maximo", "Unidad", "Sugerido"], ";");
                 foreach ($items as $it)
-                    fputcsv($out, [$it["nombre"], stock_para_mostrar($it["cantidad"] ?? 0, 3), $it["stock_minimo"], $it["stock_maximo"], $it["unidad"], $it["cantidad_sugerida"]]);
+                    fputcsv($out, [$it["nombre"], stock_para_mostrar($it["cantidad"] ?? 0, 3), $it["stock_minimo"], $it["stock_maximo"], $it["unidad"], $it["cantidad_sugerida"]], ";");
                 fclose($out);
                 return;
             }
             $html = $this->html_faltantes($items, $titulo);
-            if ($formato === "xls" || $formato === "excel") {
-                header("Content-Type: application/vnd.ms-excel; charset=utf-8");
-                header("Content-Disposition: attachment; filename=faltantes_stock.xls");
-                echo $html;
-                return;
-            }
             if ($formato === "pdf") {
                 $autoload = __DIR__ . "/../../vendor/autoload.php";
                 if (file_exists($autoload)) {
@@ -433,7 +429,7 @@ class ControladorStock {
                     $dompdf->setPaper("A4", "portrait");
                     $dompdf->render();
                     header("Content-Type: application/pdf");
-                    header("Content-Disposition: attachment; filename=faltantes_stock.pdf");
+                    header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "pdf") . "\"");
                     echo $dompdf->output();
                     return;
                 }
@@ -482,6 +478,23 @@ class ControladorStock {
             }
         }
         return $lista;
+    }
+
+    private function nombre_archivo(string $base, string $extension): string {
+        return $this->slug_archivo($base) . "_" . date("Ymd_His") . "." . ltrim($extension, ".");
+    }
+
+    private function slug_archivo(string $texto): string {
+        $texto = trim($texto);
+        $texto = strtr($texto, [
+            "á" => "a", "é" => "e", "í" => "i", "ó" => "o", "ú" => "u", "ñ" => "n",
+            "Á" => "a", "É" => "e", "Í" => "i", "Ó" => "o", "Ú" => "u", "Ñ" => "n",
+            "ü" => "u", "Ü" => "u"
+        ]);
+        $texto = strtolower($texto);
+        $texto = preg_replace('/[^a-z0-9]+/', '_', $texto) ?? "";
+        $texto = trim($texto, "_");
+        return $texto !== "" ? $texto : "exportacion";
     }
 
 

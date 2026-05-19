@@ -178,6 +178,123 @@ class ControladorVentas {
         return $total;
     }
 
+    private function buscar_producto_por_codigo_o_plu(string $codigo): ?array {
+        $codigo = preg_replace('/\D+/', '', $codigo) ?? "";
+        $codigo = trim($codigo);
+        if ($codigo === "")
+            return null;
+        $pdo = obtener_pdo();
+        if ($pdo === null)
+            return null;
+        try {
+            $sql = "SELECT id, nombre, cod_barras, precio_final, factor_conversion, id_stock, id_asociado, activo
+                    FROM productos
+                    WHERE activo = 1 AND (cod_barras = ? OR TRIM(LEADING '0' FROM cod_barras) = TRIM(LEADING '0' FROM ?))
+                    ORDER BY CHAR_LENGTH(cod_barras) ASC
+                    LIMIT 1";
+            $st = $pdo->prepare($sql);
+            $st->execute([$codigo, $codigo]);
+            $row = $st->fetch();
+            return $row ?: null;
+        } catch (Throwable $e) {
+            registrar_log("ControladorVentas::buscar_producto_por_codigo_o_plu", $e->getMessage());
+        }
+        return null;
+    }
+
+    private function config_balanza(): array {
+        $config = ConfiguracionSistema::obtener();
+        $prefijos_cantidad = array_values(array_filter(array_map("trim", explode(",", (string)($config["balanza_prefijos_cantidad"] ?? "20,21,23,25,27,29")))));
+        $prefijos_importe = array_values(array_filter(array_map("trim", explode(",", (string)($config["balanza_prefijos_importe"] ?? "22,24,26,28")))));
+        return [
+            "modo" => in_array((string)($config["balanza_modo"] ?? "auto"), ["auto", "cantidad", "importe"], true) ? (string)$config["balanza_modo"] : "auto",
+            "plu_digitos" => max(1, min(8, (int)($config["balanza_plu_digitos"] ?? 5))),
+            "valor_decimales" => max(0, min(4, (int)($config["balanza_valor_decimales"] ?? 3))),
+            "importe_decimales" => max(0, min(4, (int)($config["balanza_importe_decimales"] ?? 2))),
+            "prefijos_cantidad" => $prefijos_cantidad,
+            "prefijos_importe" => $prefijos_importe,
+        ];
+    }
+
+    private function interpretar_codigo_balanza(string $codigo, int $id_lista_precio): ?array {
+        $codigo = preg_replace('/\D+/', '', $codigo) ?? "";
+        if (strlen($codigo) < 8)
+            return null;
+
+        $config = $this->config_balanza();
+        $cuerpo = strlen($codigo) >= 13 ? substr($codigo, 0, 12) : $codigo;
+        $plu_digitos = (int)$config["plu_digitos"];
+        $formatos = [
+            [2, $plu_digitos, 12 - 2 - $plu_digitos],
+            [1, $plu_digitos, 12 - 1 - $plu_digitos],
+            [2, 5, 5],
+            [2, 4, 6],
+            [2, 6, 4],
+            [2, 3, 7],
+            [1, 5, 6],
+        ];
+        $prefijos_importe = $config["prefijos_importe"];
+        $prefijos_cantidad = $config["prefijos_cantidad"];
+        $mejor = null;
+
+        foreach ($formatos as $formato) {
+            [$largo_prefijo, $largo_plu, $largo_valor] = $formato;
+            if ($largo_valor <= 0 || strlen($cuerpo) < $largo_prefijo + $largo_plu + $largo_valor)
+                continue;
+            $prefijo = substr($cuerpo, 0, $largo_prefijo);
+            $plu = substr($cuerpo, $largo_prefijo, $largo_plu);
+            $valor = substr($cuerpo, $largo_prefijo + $largo_plu, $largo_valor);
+            $producto = $this->buscar_producto_por_codigo_o_plu($plu);
+            if ($producto === null)
+                continue;
+
+            $precio_lista_info = ListaPrecio::precio_producto_cargado((int)$producto["id"], $id_lista_precio);
+            $precio_unit = $precio_lista_info !== null ? (float)$precio_lista_info["precio"] : (float)($producto["precio_final"] ?? 0);
+            $raw = (int)$valor;
+            if ($raw <= 0)
+                continue;
+
+            $candidatos = [];
+            $cantidad = $raw / (10 ** (int)$config["valor_decimales"]);
+            if ($cantidad > 0)
+                $candidatos[] = ["modo" => "cantidad", "cantidad" => $cantidad, "precio_unit" => $precio_unit];
+            if ($precio_unit > 0) {
+                $importe = $raw / (10 ** (int)$config["importe_decimales"]);
+                $cantidad_importe = $importe / $precio_unit;
+                if ($cantidad_importe > 0)
+                    $candidatos[] = ["modo" => "importe", "cantidad" => $cantidad_importe, "precio_unit" => $precio_unit];
+            }
+
+            foreach ($candidatos as $candidato) {
+                $score = 10;
+                $prefijo2 = substr($prefijo, 0, 2);
+                if ($config["modo"] === $candidato["modo"])
+                    $score += 100;
+                else if ($config["modo"] !== "auto")
+                    continue;
+                if ($candidato["modo"] === "importe" && in_array($prefijo2, $prefijos_importe, true))
+                    $score += 50;
+                if ($candidato["modo"] === "cantidad" && in_array($prefijo2, $prefijos_cantidad, true))
+                    $score += 50;
+                if ($candidato["modo"] === "cantidad" && $mejor === null)
+                    $score += 5;
+                if ($candidato["cantidad"] > 0 && $candidato["cantidad"] <= 9999)
+                    $score += 5;
+                if ($mejor === null || $score > $mejor["score"]) {
+                    $mejor = [
+                        "score" => $score,
+                        "producto" => $producto,
+                        "cantidad" => (float)$candidato["cantidad"],
+                        "precio_unit" => (float)$candidato["precio_unit"],
+                        "modo" => $candidato["modo"],
+                    ];
+                }
+            }
+        }
+
+        return $mejor;
+    }
+
     public function lista(): void {
         if ($this->permiso()) {
             $fecha_desde = trim((string)obtener_get("fecha_desde", ""));
@@ -259,7 +376,7 @@ class ControladorVentas {
                     "texto" => "Descargar stock, listas, pedidos y estadisticas.",
                     "icono" => "bi-graph-up-arrow",
                     "clase" => "modulo-exportaciones",
-                    "url" => "index.php?c=exportaciones&a=index"
+                    "url" => "index.php?c=exportaciones&a=inicio" // Verifica que 'a' coincida con tu método
                 ]
             ];
             if ($rol === "ADMIN") {
@@ -332,6 +449,7 @@ class ControladorVentas {
             $carrito = $this->obtener_carrito();
             $total = $this->calcular_total_carrito($carrito);
             $form_venta = $this->obtener_form_venta();
+            $saldos_favor_clientes = CuentaCorriente::saldos_favor_clientes();
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/ventas/nueva.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -456,6 +574,15 @@ class ControladorVentas {
                     $precio_manual_raw = trim((string)obtener_post("precio_unit", ""));
                     $precio_manual = parsear_numero_form($precio_manual_raw, 0);
                     $aplicar_lista_existente = (int)obtener_post("aplicar_lista_existente", 0) === 1;
+                    $codigo_balanza = $this->interpretar_codigo_balanza($datos_form["buscar_producto"], (int)$datos_form["id_lista_precio"]);
+                    if ($id_producto <= 0 && $codigo_balanza !== null) {
+                        $id_producto = (int)$codigo_balanza["producto"]["id"];
+                        $cantidad = (float)$codigo_balanza["cantidad"];
+                        if ($precio_manual_raw === "" && (float)$codigo_balanza["precio_unit"] > 0) {
+                            $precio_manual = (float)$codigo_balanza["precio_unit"];
+                            $precio_manual_raw = (string)$codigo_balanza["precio_unit"];
+                        }
+                    }
                     if ($id_producto <= 0 || $cantidad <= 0)
                         $error = "Producto o cantidad inválidos.";
                     else {
@@ -729,6 +856,14 @@ class ControladorVentas {
                     $tipo_info = FacturaFiscal::tipo_comprobante($tipo_comprobante);
                     if ($id_cliente <= 0)
                         $id_cliente = 1;
+                    $total_carrito = $this->calcular_total_carrito($this->obtener_carrito());
+                    if ($error === "" && $forma_pago === "saldo_favor" && (string)$tipo_info["operacion"] !== "presupuesto") {
+                        $saldo_favor = CuentaCorriente::saldo_favor_cliente($id_cliente);
+                        if ($total_carrito <= 0)
+                            $error = "El carrito esta vacio.";
+                        else if ($saldo_favor + 0.00001 < $total_carrito)
+                            $error = "El saldo a favor del cliente es " . moneda_para_mostrar($saldo_favor) . " y no alcanza para pagar " . moneda_para_mostrar($total_carrito) . ".";
+                    }
                     if (in_array((string)$tipo_info["operacion"], ["nota_credito", "nota_debito", "nota_credito_exportacion", "nota_debito_exportacion"], true)) {
                         $error = "Las notas de credito/debito deben referenciar un comprobante autorizado. Falta cargar el modulo de comprobante asociado.";
                     } else if ((string)$tipo_info["operacion"] === "exportacion") {
@@ -752,9 +887,12 @@ class ControladorVentas {
                                 flash_ok("Presupuesto generado. No descuenta stock ni se envia a ARCA.");
                             else
                                 flash_ok("Presupuesto generado. No se pudo generar PDF: ver logs.");
-                            if ($imprimir_ticket)
+                            if ($imprimir_ticket) {
                                 redirigir("index.php?c=ventas&a=presupuesto_ticket&auto_print=1&id=" . $id_presupuesto);
+                                return;
+                            }
                             redirigir("index.php?c=ventas&a=nueva");
+                            return;
                         } else
                             $error = (string)$r["error"];
                     }
@@ -776,6 +914,11 @@ class ControladorVentas {
                                 $ok_cc = CuentaCorriente::crear($id_cliente, $concepto_cc, $total_cc, $cc_cuotas, $primer_vto, $id_venta, $cc_vencimientos);
                                 if (!$ok_cc)
                                     registrar_log("Cuenta corriente venta", "No se pudo crear cuenta para venta $id_venta");
+                            } else if ($forma_pago === "saldo_favor") {
+                                $total_saldo = $this->calcular_total_carrito($carrito);
+                                $ok_saldo = CuentaCorriente::aplicar_saldo_favor($id_cliente, $id_venta, $total_saldo);
+                                if (!$ok_saldo)
+                                    registrar_log("Saldo a favor venta", "No se pudo aplicar saldo a favor para venta $id_venta");
                             }
                             $ok_pdf = $this->generar_pdf_comprobante($id_venta, $tipo_comprobante);
                             if ($ok_pdf && $ok_fiscal && $es_fiscal)
@@ -786,9 +929,12 @@ class ControladorVentas {
                                 flash_ok("Venta confirmada. PDF generado. Revisar cola fiscal.");
                             else
                                 flash_ok("Venta confirmada. Revisar PDF y cola fiscal en logs.");
-                            if ($imprimir_ticket)
+                            if ($imprimir_ticket) {
                                 redirigir("index.php?c=ventas&a=ticket&auto_print=1&id=" . $id_venta);
+                                return;
+                            }
                             redirigir("index.php?c=ventas&a=lista");
+                            return;
                         } else
                             $error = (string)$r["error"];
                     }

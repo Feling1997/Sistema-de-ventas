@@ -102,6 +102,12 @@ class ControladorProductos {
 
     public function nuevo(): void {
         if ($this->permiso()) {
+            $listas_precios = ListaPrecio::listar(true);
+            if (count($listas_precios) === 0) {
+                flash_error("Primero carga una lista de precios.");
+                redirigir("index.php?c=listas_precios&a=index");
+                return;
+            }
             $modo = "crear";
             $id_stock_pre = (int)obtener_get("id_stock", 0);
             if ($id_stock_pre <= 0)
@@ -111,7 +117,6 @@ class ControladorProductos {
                 $nombre_stock_pre = "";
             $p = ["id" => 0, "nombre" => ($nombre_stock_pre !== "" ? $nombre_stock_pre : ""), "cod_barras" => "", "id_stock" => ($id_stock_pre > 0 ? $id_stock_pre : null), "id_asociado" => null, "factor_conversion" => 1, "ganancia" => 0, "precio_final" => 0, "activo" => 1, "usa_stock_general" => ($id_stock_pre > 0 ? 1 : 0), "stock_unidad" => "u", "stock_cantidad" => 0, "stock_precio_costo" => 0, "agregar_stock" => 0];
             $stocks = $this->listar_stock_para_select();
-            $listas_precios = ListaPrecio::listar(true);
             $precios_producto = [];
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/productos/formulario.php";
@@ -124,10 +129,15 @@ class ControladorProductos {
             $formato = strtolower((string)obtener_get("formato", "csv"));
             $solo_alta = (string)obtener_get("alcance", "alta") !== "todos";
             $id_lista = (int)obtener_get("id_lista_precio", 0);
-            $nombre_lista = "Precio publico";
+            $nombre_lista = "";
             foreach (ListaPrecio::listar(true) as $lista) {
                 if ((int)$lista["id"] === $id_lista)
                     $nombre_lista = (string)$lista["nombre"];
+            }
+            if ($id_lista <= 0 || $nombre_lista === "") {
+                flash_error("Selecciona una lista de precios cargada.");
+                redirigir("index.php?c=exportaciones&a=index");
+                return;
             }
             $productos = Producto::listar_para_exportar($solo_alta);
             foreach ($productos as &$p) {
@@ -144,9 +154,10 @@ class ControladorProductos {
             if ($id_lista > 0)
                 $titulo .= " - " . $nombre_lista;
             $base_archivo = $solo_alta ? "articulos_en_alta" : "todos_los_articulos";
-            if ($formato === "csv") {
+            $base_archivo .= "_" . $nombre_lista;
+            if ($formato === "csv" || $formato === "xls" || $formato === "excel") {
                 header("Content-Type: text/csv; charset=utf-8");
-                header("Content-Disposition: attachment; filename=\"" . $base_archivo . "_" . date("Ymd_His") . ".csv\"");
+                header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "csv") . "\"");
                 $out = fopen("php://output", "w");
                 if ($out !== false) {
                     fprintf($out, "\xEF\xBB\xBF");
@@ -167,12 +178,6 @@ class ControladorProductos {
                 exit;
             }
             $html = $this->html_productos_exportar($productos, $titulo);
-            if ($formato === "xls" || $formato === "excel") {
-                header("Content-Type: application/vnd.ms-excel; charset=utf-8");
-                header("Content-Disposition: attachment; filename=\"" . $base_archivo . "_" . date("Ymd_His") . ".xls\"");
-                echo $html;
-                exit;
-            }
             if ($formato === "pdf") {
                 $autoload = __DIR__ . "/../../vendor/autoload.php";
                 if (file_exists($autoload)) {
@@ -182,7 +187,7 @@ class ControladorProductos {
                     $dompdf->setPaper("A4", "portrait");
                     $dompdf->render();
                     header("Content-Type: application/pdf");
-                    header("Content-Disposition: attachment; filename=\"" . $base_archivo . "_" . date("Ymd_His") . ".pdf\"");
+                    header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "pdf") . "\"");
                     echo $dompdf->output();
                     exit;
                 }
@@ -200,8 +205,30 @@ class ControladorProductos {
         return reporte_html_tabla($titulo, "Catalogo de articulos para consulta o entrega al cliente", ["Articulo", "Codigo", "Stock", "Cantidad", "Unidad", "Precio", "Estado"], $filas, 7);
     }
 
+    private function nombre_archivo(string $base, string $extension): string {
+        return $this->slug_archivo($base) . "_" . date("Ymd_His") . "." . ltrim($extension, ".");
+    }
+
+    private function slug_archivo(string $texto): string {
+        $texto = trim($texto);
+        $texto = strtr($texto, [
+            "á" => "a", "é" => "e", "í" => "i", "ó" => "o", "ú" => "u", "ñ" => "n",
+            "Á" => "a", "É" => "e", "Í" => "i", "Ó" => "o", "Ú" => "u", "Ñ" => "n",
+            "ü" => "u", "Ü" => "u"
+        ]);
+        $texto = strtolower($texto);
+        $texto = preg_replace('/[^a-z0-9]+/', '_', $texto) ?? "";
+        $texto = trim($texto, "_");
+        return $texto !== "" ? $texto : "exportacion";
+    }
+
     public function crear(): void {
         if ($this->permiso()) {
+            if (count(ListaPrecio::listar(true)) === 0) {
+                flash_error("Primero carga una lista de precios.");
+                redirigir("index.php?c=listas_precios&a=index");
+                return;
+            }
             $error = "";
             if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $csrf = obtener_post("csrf", "");

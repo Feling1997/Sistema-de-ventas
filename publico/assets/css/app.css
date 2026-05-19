@@ -29,6 +29,7 @@
 }
 
 .menu-icono-inline {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -59,6 +60,28 @@
   line-height: 1;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.menu-icono-alerta {
+  padding-right: 11px;
+}
+
+.nav-alert-badge {
+  position: absolute;
+  top: -8px;
+  right: -7px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  border: 2px solid var(--nav-bg-b, #1f2937);
+  font-size: 0.66rem !important;
+  line-height: 13px !important;
+  font-weight: 900;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
 }
 
 .app-navbar .btn-outline-light,
@@ -321,6 +344,14 @@ textarea.form-control {
 
 .table-striped tbody tr:nth-child(odd) {
   background: #f8fafc;
+}
+
+.cc-row-overdue {
+  background: #fff1f2;
+}
+
+.cc-row-overdue td {
+  border-bottom-color: #fecdd3;
 }
 
 .badge {

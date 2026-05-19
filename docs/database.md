@@ -25,7 +25,8 @@ Información de clientes.
 |-------|------|-------------|
 | id | INT AUTO_INCREMENT PRIMARY KEY | ID único del cliente |
 | nombre | VARCHAR(100) | Nombre del cliente |
-| email | VARCHAR(100) | Correo electrónico |
+| dni | VARCHAR(20) | DNI o CUIT del cliente |
+| email | VARCHAR(255) | Correo electrónico |
 | telefono | VARCHAR(20) | Número de teléfono |
 | direccion | TEXT | Dirección |
 | activo | TINYINT(1) DEFAULT 1 | Estado activo/inactivo |
@@ -55,7 +56,9 @@ Productos para venta.
 | id_stock | INT | FK a stock.id |
 | factor_conversion | DECIMAL(10,2) | Factor de conversión |
 | ganancia | DECIMAL(5,2) | Porcentaje de ganancia |
-| precio_final | DECIMAL(10,2) | Precio de venta |
+| ganancia_mayorista | DECIMAL(5,2) | Porcentaje ganancia mayorista |
+| precio_final | DECIMAL(10,2) | Precio público (Lista 1) |
+| precio_mayorista | DECIMAL(10,2) | Precio mayorista (Lista 2) |
 | activo | TINYINT(1) DEFAULT 1 | Estado activo/inactivo |
 | creado_en | TIMESTAMP DEFAULT CURRENT_TIMESTAMP | Fecha de creación |
 
@@ -127,7 +130,8 @@ CREATE TABLE usuarios (
 CREATE TABLE clientes (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
-    email VARCHAR(100),
+    dni VARCHAR(20),
+    email VARCHAR(255),
     telefono VARCHAR(20),
     direccion TEXT,
     activo TINYINT(1) DEFAULT 1,
@@ -150,14 +154,70 @@ CREATE TABLE productos (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     cod_barras VARCHAR(50) UNIQUE,
-    id_stock INT,
+    id_stock INT NULL,
     factor_conversion DECIMAL(10,2) DEFAULT 1,
     ganancia DECIMAL(5,2) DEFAULT 0,
+    ganancia_mayorista DECIMAL(5,2) DEFAULT 0,
     precio_final DECIMAL(10,2) DEFAULT 0,
+    precio_mayorista DECIMAL(10,2) DEFAULT 0,
     activo TINYINT(1) DEFAULT 1,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (id_stock) REFERENCES stock(id)
 );
+
+-- Vistas para Estadísticas Simplificadas (Sin campos repetidos)
+
+-- 1. Artículos más vendidos
+CREATE OR REPLACE VIEW vista_top_productos AS
+SELECT 
+    p.id,
+    p.nombre AS producto,
+    p.cod_barras,
+    CAST(SUM(dv.cantidad) AS DECIMAL(10,2)) AS cantidad_total,
+    CAST(SUM(dv.subtotal) AS DECIMAL(10,2)) AS recaudacion
+FROM detalle_venta dv
+JOIN productos p ON dv.id_producto = p.id
+WHERE p.activo = 1
+GROUP BY p.id, p.nombre, p.cod_barras
+ORDER BY cantidad_total DESC;
+
+-- 2. Clientes con más compras
+CREATE OR REPLACE VIEW vista_top_clientes AS
+SELECT 
+    c.id,
+    c.nombre AS cliente,
+    COUNT(v.id) AS total_compras,
+    SUM(v.total) AS monto_invertido
+FROM ventas v
+JOIN clientes c ON v.id_cliente = c.id
+WHERE c.activo = 1
+GROUP BY c.id, c.nombre, c.dni
+ORDER BY monto_invertido DESC;
+
+-- 3. Lista de Precios para Exportación (Público y Mayorista)
+CREATE OR REPLACE VIEW vista_exportar_precios AS
+SELECT 
+    p.id,
+    p.nombre AS producto,
+    p.cod_barras,
+    p.precio_final AS precio_publico,
+    p.precio_mayorista AS precio_mayorista,
+    COALESCE(s.cantidad, 0) AS stock_actual,
+    s.unidad
+FROM productos p
+LEFT JOIN stock s ON p.id_stock = s.id
+WHERE p.activo = 1;
+
+-- 4. Resumen de Stock Crítico
+CREATE OR REPLACE VIEW vista_resumen_stock AS
+SELECT 
+    id,
+    nombre,
+    cantidad,
+    unidad
+FROM stock
+WHERE activo = 1 AND cantidad < 10
+ORDER BY cantidad ASC;
 
 -- Tabla ventas
 CREATE TABLE ventas (

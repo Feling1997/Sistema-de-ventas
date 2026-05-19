@@ -124,6 +124,12 @@ class ControladorConfiguraciones {
                 "formato_impresion_ticket" => obtener_post("formato_impresion_ticket", "80"),
                 "texto_pie_ticket" => obtener_post("texto_pie_ticket", ""),
                 "controlar_stock_ventas" => obtener_post("controlar_stock_ventas", "0"),
+                "balanza_modo" => obtener_post("balanza_modo", "auto"),
+                "balanza_plu_digitos" => obtener_post("balanza_plu_digitos", "5"),
+                "balanza_valor_decimales" => obtener_post("balanza_valor_decimales", "3"),
+                "balanza_importe_decimales" => obtener_post("balanza_importe_decimales", "2"),
+                "balanza_prefijos_cantidad" => obtener_post("balanza_prefijos_cantidad", "20,21,23,25,27,29"),
+                "balanza_prefijos_importe" => obtener_post("balanza_prefijos_importe", "22,24,26,28"),
                 "logo_ticket" => $this->guardar_logo_ticket((string)($config_actual["logo_ticket"] ?? "")),
                 "url_reparaciones" => normalizar_url_reparaciones((string)obtener_post("url_reparaciones", "")),
                 "mostrar_reparaciones" => obtener_post("mostrar_reparaciones", "0"),
@@ -164,6 +170,7 @@ class ControladorConfiguraciones {
                 "backup_b2_bucket_id" => obtener_post("backup_b2_bucket_id", ""),
                 "backup_b2_bucket_name" => obtener_post("backup_b2_bucket_name", ""),
                 "backup_b2_carpeta" => obtener_post("backup_b2_carpeta", "ventas-reparaciones"),
+                "auth_modo" => obtener_post("auth_modo", "login"),
             ];
 
             if (texto_invalido((string)$datos["nombre_comercio"])) {

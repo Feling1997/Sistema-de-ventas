@@ -9,6 +9,15 @@ $precio_unit_actual = (string)($form_venta["precio_unit"] ?? "");
 $tipo_comprobante_actual = (int)($form_venta["tipo_comprobante"] ?? 98);
 $buscar_producto_actual = (string)($form_venta["buscar_producto"] ?? "");
 $listas_precios = $listas_precios ?? [];
+$config_sistema_ventas = ConfiguracionSistema::obtener();
+$balanza_config = [
+  "modo" => (string)($config_sistema_ventas["balanza_modo"] ?? "auto"),
+  "pluDigitos" => max(1, min(8, (int)($config_sistema_ventas["balanza_plu_digitos"] ?? 5))),
+  "valorDecimales" => max(0, min(4, (int)($config_sistema_ventas["balanza_valor_decimales"] ?? 3))),
+  "importeDecimales" => max(0, min(4, (int)($config_sistema_ventas["balanza_importe_decimales"] ?? 2))),
+  "prefijosCantidad" => array_values(array_filter(array_map("trim", explode(",", (string)($config_sistema_ventas["balanza_prefijos_cantidad"] ?? "20,21,23,25,27,29"))))),
+  "prefijosImporte" => array_values(array_filter(array_map("trim", explode(",", (string)($config_sistema_ventas["balanza_prefijos_importe"] ?? "22,24,26,28"))))),
+];
 $id_lista_precio_actual = (int)($form_venta["id_lista_precio"] ?? 0);
 if ($id_lista_precio_actual <= 0 && count($listas_precios) > 0)
   $id_lista_precio_actual = (int)$listas_precios[0]["id"];
@@ -18,6 +27,7 @@ if (!isset($tipos_comprobante[$tipo_comprobante_actual]))
 $tipo_comprobante_info = $tipos_comprobante[$tipo_comprobante_actual];
 $cliente_actual_nombre = "Consumidor Final";
 $clientes_json = [];
+$saldos_favor_clientes = $saldos_favor_clientes ?? [];
 foreach ($clientes as $cliente_item) {
   $cliente_texto = (string)($cliente_item["nombre"] ?? "");
   if ((int)($cliente_item["id"] ?? 0) === 1 && $cliente_texto === "") {
@@ -34,7 +44,8 @@ foreach ($clientes as $cliente_item) {
     "documento" => (string)($cliente_item["dni"] ?? ""),
     "tipo_documento" => $tipo_doc_cliente,
     "condicion_iva" => $condicion_cliente,
-    "id_lista_precio" => (int)($cliente_item["id_lista_precio"] ?? 0)
+    "id_lista_precio" => (int)($cliente_item["id_lista_precio"] ?? 0),
+    "saldo_favor" => (float)($saldos_favor_clientes[(int)($cliente_item["id"] ?? 0)] ?? 0)
   ];
   if ((int)($cliente_item["id"] ?? 0) === $id_cliente_actual) {
     $cliente_actual_nombre = $cliente_texto;
@@ -270,7 +281,7 @@ foreach ($clientes as $cliente_item) {
         <div class="sales-detail-footer">
           <div class="sales-footer-actions">
             <a class="btn btn-outline-danger" href="index.php?c=ventas&a=vaciar" onclick="return confirm('&iquest;Vaciar detalle?');">Vaciar</a>
-            <form id="formConfirmarBottom" method="POST" action="index.php?c=ventas&a=confirmar" class="m-0" target="_blank">
+            <form id="formConfirmarBottom" method="POST" action="index.php?c=ventas&a=confirmar" class="m-0">
               <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token()) ?>">
               <input type="hidden" name="id_cliente" id="idClienteHiddenBottom" value="<?= $id_cliente_actual ?>">
               <input type="hidden" name="buscar_cliente" id="buscarClienteHiddenBottom" value="<?= htmlspecialchars($buscar_cliente_actual) ?>">
@@ -300,8 +311,10 @@ foreach ($clientes as $cliente_item) {
         <option value="contado">Contado</option>
         <option value="transferencia">Transferencia</option>
         <option value="tarjeta">Tarjeta</option>
+        <option value="saldo_favor">Saldo a favor</option>
         <option value="cuenta_corriente">Cuenta corriente</option>
       </select>
+      <div class="form-text d-none" id="saldoFavorVentaInfo"></div>
       <div class="sales-cc-panel d-none" id="cuentaCorrienteVentaPanel">
         <label class="form-label">Cuotas y vencimientos</label>
         <input type="number" min="1" max="36" class="form-control" id="ccCuotasVenta" value="1">
@@ -357,7 +370,9 @@ foreach ($clientes as $cliente_item) {
   const cuentaCorrienteVentaPanel = document.getElementById('cuentaCorrienteVentaPanel');
   const ccCuotasVenta = document.getElementById('ccCuotasVenta');
   const ccVencimientosVenta = document.getElementById('ccVencimientosVenta');
+  const saldoFavorVentaInfo = document.getElementById('saldoFavorVentaInfo');
   const clientesData = <?= json_encode($clientes_json, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+  const balanzaConfig = <?= json_encode($balanza_config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
   const inputProd = document.getElementById('buscarProducto');
   const modoBusquedaProducto = document.getElementById('modoBusquedaProducto');
   const selProd = document.getElementById('selectProducto');
@@ -474,6 +489,7 @@ foreach ($clientes as $cliente_item) {
       selListaPrecio.value = String(cliente.id_lista_precio);
       syncListaPrecio();
     }
+    syncFormaPagoVenta();
     guardarEstadoLocal();
   }
 
@@ -592,11 +608,32 @@ foreach ($clientes as $cliente_item) {
     return { cantidad: cantidad > 0 ? cantidad : 1, codigo: partes[2].trim() };
   }
 
-  function seleccionarCBExacto(valor){
-    const datos = datosEntradaProducto(valor);
-    const codigo = datos.codigo;
+  function soloDigitos(valor) {
+    return String(valor || '').replace(/\D+/g, '');
+  }
+
+  function normalizarPlu(valor) {
+    return soloDigitos(valor).replace(/^0+/, '') || '0';
+  }
+
+  function precioListaDeOpcion(op) {
+    if (!op)
+      return 0;
+    const idLista = selListaPrecio ? selListaPrecio.value : '';
+    const bruto = op.getAttribute('data-precios') || '';
+    let precio = 0;
+    bruto.split('|').forEach(function(par) {
+      const partes = par.split(':');
+      if (partes.length === 2 && partes[0] === idLista)
+        precio = parseFloat(partes[1]) || 0;
+    });
+    return precio;
+  }
+
+  function buscarOpcionPorCodigoOPlu(codigo) {
     if (!selProd || codigo === '')
-      return false;
+      return null;
+    const codigoNorm = normalizarPlu(codigo);
     const temp = document.createElement('select');
     temp.innerHTML = prodOptionsHTML;
     const opciones = Array.from(temp.querySelectorAll('option'));
@@ -605,18 +642,110 @@ foreach ($clientes as $cliente_item) {
       if (!op.value)
         continue;
       const cb = (op.getAttribute('data-cb') || '').trim();
-      if (cb === codigo) {
-        selProd.innerHTML = prodOptionsHTML;
-        selProd.value = op.value;
-        if (cantidadVenta)
-          cantidadVenta.value = String(datos.cantidad);
-        precioProductoSeleccionado();
-        preservarPrecioInicial = false;
-        guardarEstadoLocal();
-        return true;
+      if (cb === codigo || normalizarPlu(cb) === codigoNorm)
+        return op;
+    }
+    return null;
+  }
+
+  function interpretarCodigoBalanza(codigo) {
+    const digitos = soloDigitos(codigo);
+    if (digitos.length < 8)
+      return null;
+    const cuerpo = digitos.length >= 13 ? digitos.slice(0, 12) : digitos;
+    const pluDigitos = Math.max(1, Math.min(8, parseInt(balanzaConfig.pluDigitos || 5, 10) || 5));
+    const formatos = [
+      [2, pluDigitos, 12 - 2 - pluDigitos],
+      [1, pluDigitos, 12 - 1 - pluDigitos],
+      [2, 5, 5],
+      [2, 4, 6],
+      [2, 6, 4],
+      [2, 3, 7],
+      [1, 5, 6]
+    ];
+    const prefijosImporte = Array.isArray(balanzaConfig.prefijosImporte) ? balanzaConfig.prefijosImporte : ['22', '24', '26', '28'];
+    const prefijosCantidad = Array.isArray(balanzaConfig.prefijosCantidad) ? balanzaConfig.prefijosCantidad : ['20', '21', '23', '25', '27', '29'];
+    const modoBalanza = ['auto', 'cantidad', 'importe'].includes(balanzaConfig.modo) ? balanzaConfig.modo : 'auto';
+    const valorDecimales = Math.max(0, Math.min(4, parseInt(balanzaConfig.valorDecimales || 3, 10) || 0));
+    const importeDecimales = Math.max(0, Math.min(4, parseInt(balanzaConfig.importeDecimales || 2, 10) || 0));
+    let mejor = null;
+
+    formatos.forEach(function(formato) {
+      const prefLen = formato[0];
+      const pluLen = formato[1];
+      const valLen = formato[2];
+      if (valLen <= 0 || cuerpo.length < prefLen + pluLen + valLen)
+        return;
+      const prefijo = cuerpo.slice(0, prefLen);
+      const plu = cuerpo.slice(prefLen, prefLen + pluLen);
+      const valor = cuerpo.slice(prefLen + pluLen, prefLen + pluLen + valLen);
+      const op = buscarOpcionPorCodigoOPlu(plu);
+      if (!op)
+        return;
+      const raw = parseInt(valor, 10) || 0;
+      if (raw <= 0)
+        return;
+      const precio = precioListaDeOpcion(op);
+      const candidatos = [];
+      candidatos.push({ modo: 'cantidad', cantidad: raw / Math.pow(10, valorDecimales), precio: precio });
+      if (precio > 0)
+        candidatos.push({ modo: 'importe', cantidad: (raw / Math.pow(10, importeDecimales)) / precio, precio: precio });
+      candidatos.forEach(function(candidato) {
+        if (candidato.cantidad <= 0 || candidato.cantidad > 9999)
+          return;
+        let score = 10;
+        const pref2 = prefijo.slice(0, 2);
+        if (modoBalanza === candidato.modo)
+          score += 100;
+        else if (modoBalanza !== 'auto')
+          return;
+        if (candidato.modo === 'importe' && prefijosImporte.includes(pref2))
+          score += 50;
+        if (candidato.modo === 'cantidad' && prefijosCantidad.includes(pref2))
+          score += 50;
+        if (candidato.modo === 'cantidad' && mejor === null)
+          score += 5;
+        if (mejor === null || score > mejor.score) {
+          mejor = {
+            score: score,
+            opcion: op,
+            cantidad: candidato.cantidad,
+            precio: candidato.precio
+          };
+        }
+      });
+    });
+    return mejor;
+  }
+
+  function seleccionarCBExacto(valor){
+    const datos = datosEntradaProducto(valor);
+    const codigo = datos.codigo;
+    if (!selProd || codigo === '')
+      return false;
+    let op = buscarOpcionPorCodigoOPlu(codigo);
+    let cantidad = datos.cantidad;
+    let precioBalanza = 0;
+    if (!op) {
+      const datosBalanza = interpretarCodigoBalanza(codigo);
+      if (datosBalanza) {
+        op = datosBalanza.opcion;
+        cantidad = datosBalanza.cantidad;
+        precioBalanza = datosBalanza.precio;
       }
     }
-    return false;
+    if (!op)
+      return false;
+    selProd.innerHTML = prodOptionsHTML;
+    selProd.value = op.value;
+    if (cantidadVenta)
+      cantidadVenta.value = Number(cantidad).toFixed(3).replace(/\.?0+$/, '');
+    precioProductoSeleccionado();
+    if (precioBalanza > 0 && precioUnitVenta)
+      precioUnitVenta.value = precioBalanza.toFixed(2);
+    preservarPrecioInicial = false;
+    guardarEstadoLocal();
+    return true;
   }
 
   function activarBotonProducto(valor) {
@@ -957,10 +1086,17 @@ foreach ($clientes as $cliente_item) {
   }
   function syncFormaPagoVenta() {
     const esCc = formaPagoVenta && formaPagoVenta.value === 'cuenta_corriente';
+    const esSaldoFavor = formaPagoVenta && formaPagoVenta.value === 'saldo_favor';
     if (cuentaCorrienteVentaPanel)
       cuentaCorrienteVentaPanel.classList.toggle('d-none', !esCc);
     if (esCc)
       renderVencimientosVenta();
+    if (saldoFavorVentaInfo) {
+      const cliente = clientesData.find(function(c){ return selCli && String(c.id) === String(selCli.value || '1'); });
+      const saldo = cliente ? (parseFloat(cliente.saldo_favor || 0) || 0) : 0;
+      saldoFavorVentaInfo.textContent = 'Disponible: $ ' + saldo.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      saldoFavorVentaInfo.classList.toggle('d-none', !esSaldoFavor);
+    }
   }
   if (formaPagoVenta)
     formaPagoVenta.addEventListener('change', syncFormaPagoVenta);
@@ -1011,6 +1147,10 @@ foreach ($clientes as $cliente_item) {
       formConfirmarBottom.requestSubmit();
     else
       formConfirmarBottom.submit();
+    if (imprimir)
+      setTimeout(function () {
+        window.location.href = 'index.php?c=ventas&a=nueva';
+      }, 700);
   }
   async function cargarImpresorasVenta() {
     if (!impresoraVentaPanel || !impresoraVentaSelect)
@@ -1044,11 +1184,7 @@ foreach ($clientes as $cliente_item) {
   if (guardarVentaSinImprimir)
     guardarVentaSinImprimir.addEventListener('click', function(){ copiarFormaPagoYEnviar(false); });
   if (guardarVentaImprimir)
-    guardarVentaImprimir.addEventListener('click', async function(){
-      if (impresoraVentaPanel && impresoraVentaPanel.classList.contains('d-none')) {
-        await cargarImpresorasVenta();
-        return;
-      }
+    guardarVentaImprimir.addEventListener('click', function(){
       copiarFormaPagoYEnviar(true);
     });
   document.addEventListener('click', function(e){

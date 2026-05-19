@@ -21,6 +21,18 @@ class ListaPrecio {
                 precio DECIMAL(14,2) NOT NULL DEFAULT 0,
                 PRIMARY KEY (id_producto, id_lista)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $pdo->exec("CREATE TABLE IF NOT EXISTS historial_precios (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                id_producto INT NOT NULL,
+                id_lista INT NOT NULL,
+                precio_anterior DECIMAL(14,2) NOT NULL DEFAULT 0,
+                precio_nuevo DECIMAL(14,2) NOT NULL DEFAULT 0,
+                origen VARCHAR(40) NOT NULL DEFAULT 'manual',
+                creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_historial_precios_fecha (creado_en),
+                KEY idx_historial_precios_lista (id_lista),
+                KEY idx_historial_precios_producto (id_producto)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             self::asegurar_lista_base($pdo, "Costo");
             self::asegurar_lista_base($pdo, "Publico");
             self::asegurar_columna_cliente($pdo);
@@ -154,6 +166,10 @@ class ListaPrecio {
     }
 
     public static function guardar_precio_producto(int $id_producto, int $id_lista, float $porcentaje, float $precio): bool {
+        return self::guardar_precio_producto_origen($id_producto, $id_lista, $porcentaje, $precio, "manual");
+    }
+
+    public static function guardar_precio_producto_origen(int $id_producto, int $id_lista, float $porcentaje, float $precio, string $origen = "manual"): bool {
         self::asegurar_tablas();
         $pdo = obtener_pdo();
         if ($pdo === null || $id_producto <= 0 || $id_lista <= 0)
@@ -163,15 +179,65 @@ class ListaPrecio {
                 $porcentaje = 0;
             if ($precio < 0)
                 $precio = 0;
+            $st_actual = $pdo->prepare("SELECT precio FROM producto_precios WHERE id_producto = ? AND id_lista = ? LIMIT 1");
+            $st_actual->execute([$id_producto, $id_lista]);
+            $actual = $st_actual->fetch();
+            $precio_anterior = $actual ? (float)($actual["precio"] ?? 0) : 0.0;
             $sql = "INSERT INTO producto_precios (id_producto, id_lista, porcentaje, precio)
                     VALUES (?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE porcentaje = VALUES(porcentaje), precio = VALUES(precio)";
             $st = $pdo->prepare($sql);
-            return $st->execute([$id_producto, $id_lista, $porcentaje, $precio]);
+            $ok = $st->execute([$id_producto, $id_lista, $porcentaje, $precio]);
+            if ($ok && abs($precio_anterior - $precio) >= 0.01) {
+                $origen = substr(trim($origen) !== "" ? trim($origen) : "manual", 0, 40);
+                $hist = $pdo->prepare("INSERT INTO historial_precios (id_producto, id_lista, precio_anterior, precio_nuevo, origen) VALUES (?, ?, ?, ?, ?)");
+                $hist->execute([$id_producto, $id_lista, $precio_anterior, $precio, $origen]);
+            }
+            return $ok;
         } catch (Throwable $e) {
             registrar_log("ListaPrecio::guardar_precio_producto", $e->getMessage());
             return false;
         }
+    }
+
+    public static function historial_precios(string $desde = "", string $hasta = "", int $id_lista = 0): array {
+        self::asegurar_tablas();
+        $lista = [];
+        $pdo = obtener_pdo();
+        if ($pdo !== null) {
+            try {
+                $params = [];
+                $where = [];
+                if ($desde !== "") {
+                    $where[] = "h.creado_en >= ?";
+                    $params[] = $desde . " 00:00:00";
+                }
+                if ($hasta !== "") {
+                    $where[] = "h.creado_en <= ?";
+                    $params[] = $hasta . " 23:59:59";
+                }
+                if ($id_lista > 0) {
+                    $where[] = "h.id_lista = ?";
+                    $params[] = $id_lista;
+                }
+                $sql = "SELECT h.creado_en, l.nombre AS lista, p.cod_barras AS codigo, p.nombre AS producto,
+                               h.precio_anterior, h.precio_nuevo, h.origen
+                        FROM historial_precios h
+                        INNER JOIN productos p ON p.id = h.id_producto
+                        INNER JOIN listas_precios l ON l.id = h.id_lista";
+                if ($where)
+                    $sql .= " WHERE " . implode(" AND ", $where);
+                $sql .= " ORDER BY h.creado_en DESC, l.nombre ASC, p.nombre ASC";
+                $st = $pdo->prepare($sql);
+                $st->execute($params);
+                $rows = $st->fetchAll();
+                if (is_array($rows))
+                    $lista = $rows;
+            } catch (Throwable $e) {
+                registrar_log("ListaPrecio::historial_precios", $e->getMessage());
+            }
+        }
+        return $lista;
     }
 
     public static function precio_producto(int $id_producto, int $id_lista): ?float {

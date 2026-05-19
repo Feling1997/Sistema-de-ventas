@@ -175,22 +175,51 @@
   }
 
   function nombreArchivoExportacion(form, formato) {
-    const base = (form.dataset.exportName || 'exportacion').replace(/[^a-zA-Z0-9_-]+/g, '_');
+    const reporte = form.querySelector('[name="reporte"]');
+    const partes = [];
+    if (reporte && reporte.selectedOptions.length)
+      partes.push(reporte.selectedOptions[0].textContent || '');
+    const lista = Array.from(form.querySelectorAll('[name="id_lista_precio"]')).find(function (select) {
+      return !select.disabled && select.offsetParent !== null;
+    });
+    if (lista && lista.selectedOptions.length && lista.value !== '0')
+      partes.push(lista.selectedOptions[0].textContent || '');
+    const stock = form.querySelector('[name="id_stock"]:not(:disabled)');
+    if (stock && stock.selectedOptions.length)
+      partes.push(stock.selectedOptions[0].textContent || '');
+    const baseTexto = partes.join(' ') || form.dataset.exportName || 'exportacion';
+    const base = baseTexto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'exportacion';
     const fecha = new Date();
     const pad = function (n) { return String(n).padStart(2, '0'); };
     const marca = fecha.getFullYear() + pad(fecha.getMonth() + 1) + pad(fecha.getDate()) + '_' + pad(fecha.getHours()) + pad(fecha.getMinutes());
-    const ext = formato === 'xls' || formato === 'excel' ? 'xls' : formato;
+    const ext = formato === 'pdf' ? 'pdf' : 'csv';
     return base + '_' + marca + '.' + ext;
   }
 
-  function tipoMimeExportacion(formato) {
-    if (formato === 'pdf')
+  function nombreDesdeContentDisposition(response) {
+    const header = response.headers.get('Content-Disposition') || response.headers.get('content-disposition') || '';
+    const utf = header.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf)
+      return decodeURIComponent(utf[1].replace(/["']/g, ''));
+    const normal = header.match(/filename="?([^";]+)"?/i);
+    return normal ? normal[1] : '';
+  }
+
+  function tipoMimeArchivo(nombre, tipoRespuesta) {
+    const ext = String(nombre || '').split('.').pop().toLowerCase();
+    if (ext === 'pdf')
       return 'application/pdf';
-    if (formato === 'xls' || formato === 'excel')
-      return 'application/vnd.ms-excel';
-    if (formato === 'csv')
+    if (ext === 'csv')
       return 'text/csv';
-    return 'application/octet-stream';
+    return tipoRespuesta || 'application/octet-stream';
+  }
+
+  function abrirArchivoGenerado(blob, nombre) {
+    const ext = String(nombre || '').split('.').pop().toLowerCase();
+    const url = URL.createObjectURL(blob);
+    const ventana = window.open(url, '_blank');
+    if (ventana)
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
   }
 
   function enlazarExportaciones(root) {
@@ -210,27 +239,38 @@
         if (typeof window.showSaveFilePicker !== 'function')
           return;
         e.preventDefault();
-        const nombre = nombreArchivoExportacion(form, formato);
+        const fallback = nombreArchivoExportacion(form, formato);
+        let response = null;
+        let blob = null;
+        try {
+          response = await fetch(construirUrl(form), { credentials: 'same-origin' });
+          if (!response.ok)
+            throw new Error('No se pudo generar la exportacion.');
+          blob = await response.blob();
+        } catch (err) {
+          alert(err && err.message ? err.message : 'No se pudo generar el archivo.');
+          return;
+        }
+        const nombre = nombreDesdeContentDisposition(response) || fallback;
+        const extension = nombre.split('.').pop().toLowerCase() || 'csv';
+        const mime = tipoMimeArchivo(nombre, blob.type);
         let handle = null;
         try {
           handle = await window.showSaveFilePicker({
             suggestedName: nombre,
             types: [{
               description: 'Archivo de exportacion',
-              accept: { [tipoMimeExportacion(formato)]: ['.' + nombre.split('.').pop()] }
+              accept: { [mime]: ['.' + extension] }
             }]
           });
         } catch (err) {
           return;
         }
         try {
-          const response = await fetch(construirUrl(form), { credentials: 'same-origin' });
-          if (!response.ok)
-            throw new Error('No se pudo generar la exportacion.');
-          const blob = await response.blob();
           const writable = await handle.createWritable();
           await writable.write(blob);
           await writable.close();
+          abrirArchivoGenerado(blob, nombre);
         } catch (err) {
           alert(err && err.message ? err.message : 'No se pudo guardar el archivo.');
         }

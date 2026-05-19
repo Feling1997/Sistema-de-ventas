@@ -24,6 +24,12 @@ class ConfiguracionSistema {
             "formato_impresion_ticket" => "80",
             "texto_pie_ticket" => "Gracias por su compra",
             "controlar_stock_ventas" => "1",
+            "balanza_modo" => "auto",
+            "balanza_plu_digitos" => "5",
+            "balanza_valor_decimales" => "3",
+            "balanza_importe_decimales" => "2",
+            "balanza_prefijos_cantidad" => "20,21,23,25,27,29",
+            "balanza_prefijos_importe" => "22,24,26,28",
             "logo_ticket" => "",
             "url_reparaciones" => "index.php?c=reparaciones&a=index",
             "mostrar_reparaciones" => "1",
@@ -62,6 +68,7 @@ class ConfiguracionSistema {
             "backup_b2_bucket_id" => "",
             "backup_b2_bucket_name" => "",
             "backup_b2_carpeta" => "ventas-reparaciones",
+            "auth_modo" => "login",
         ];
     }
 
@@ -164,9 +171,33 @@ class ConfiguracionSistema {
             else if ($clave === "navbar_fondo_modo") {
                 $datos[$clave] = "colores";
             }
+            else if ($clave === "auth_modo") {
+                $modo = trim((string)$valor);
+                $datos[$clave] = in_array($modo, ["login", "sin_login"], true) ? $modo : "login";
+            }
             else if ($clave === "formato_impresion_ticket") {
                 $formato = trim((string)$valor);
                 $datos[$clave] = in_array($formato, ["a4", "80", "58"], true) ? $formato : "80";
+            }
+            else if ($clave === "balanza_modo") {
+                $modo = trim((string)$valor);
+                $datos[$clave] = in_array($modo, ["auto", "cantidad", "importe"], true) ? $modo : "auto";
+            }
+            else if ($clave === "balanza_plu_digitos") {
+                $datos[$clave] = (string)max(1, min(8, (int)$valor));
+            }
+            else if (in_array($clave, ["balanza_valor_decimales", "balanza_importe_decimales"], true)) {
+                $datos[$clave] = (string)max(0, min(4, (int)$valor));
+            }
+            else if (in_array($clave, ["balanza_prefijos_cantidad", "balanza_prefijos_importe"], true)) {
+                $partes = preg_split('/[,\s;]+/', (string)$valor) ?: [];
+                $limpios = [];
+                foreach ($partes as $parte) {
+                    $prefijo = preg_replace('/\D+/', '', (string)$parte) ?? "";
+                    if ($prefijo !== "" && strlen($prefijo) <= 4)
+                        $limpios[] = $prefijo;
+                }
+                $datos[$clave] = implode(",", array_values(array_unique($limpios)));
             }
             else if ($clave === "color_acento") {
                 $color = trim((string)$valor);

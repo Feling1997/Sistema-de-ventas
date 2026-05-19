@@ -19,6 +19,28 @@ $mapa=[
   "reparaciones" => ["archivo" => __DIR__ . "/../aplicacion/controladores/ControladorReparaciones.php", "clase" => "ControladorReparaciones"],
   "configuraciones" => ["archivo" => __DIR__ . "/../aplicacion/controladores/ControladorConfiguraciones.php", "clase" => "ControladorConfiguraciones"],
 ];
+$controlador_modulo = [
+  "clientes" => "clientes",
+  "stock" => "stock",
+  "productos" => "productos",
+  "listas_precios" => "listas_precios",
+  "exportaciones" => "exportaciones",
+  "cuentas_corrientes" => "cuentas_corrientes",
+  "reparaciones" => "reparaciones",
+  "configuraciones" => "configuraciones",
+  "usuarios" => "usuarios",
+];
+$modulo_actual = $controlador_modulo[$c] ?? "";
+if ($c === "ventas") {
+    $acciones_nueva = ["nueva", "agregar", "confirmar", "vaciar", "quitar", "editar_item", "actualizar_item", "ticket", "ticket_pdf", "presupuesto_ticket", "presupuesto_pdf", "impresoras_json", "aplicar_lista"];
+    $modulo_actual = in_array($a, $acciones_nueva, true) ? "nueva_venta" : "ventas";
+}
+if ($c !== "auth" && $modulo_actual !== "" && esta_logueado() && !usuario_puede_modulo($modulo_actual)) {
+    flash_error("No tenes permiso para acceder a esa seccion.");
+    $destino = usuario_puede_modulo("ventas") ? "index.php?c=ventas&a=inicio" : (usuario_puede_modulo("nueva_venta") ? "index.php?c=ventas&a=nueva" : "index.php?c=auth&a=salir");
+    redirigir($destino);
+    exit;
+}
 $archivo="";
 $clase="";
 //preguntamos si existe el controlador en el mapa

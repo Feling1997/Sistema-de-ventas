@@ -145,6 +145,37 @@ foreach ($modulos_navbar as $clave_nav => $modulo_nav) {
             <option value="0" <?= $controlar_stock_ventas === "0" ? "selected" : "" ?>>Permitir stock negativo</option>
           </select>
         </div>
+        <div class="col-md-4">
+          <label class="form-label">Codigo de balanza</label>
+          <?php $balanza_modo = (string)($config["balanza_modo"] ?? "auto"); ?>
+          <select class="form-select" name="balanza_modo">
+            <option value="auto" <?= $balanza_modo === "auto" ? "selected" : "" ?>>Automatico</option>
+            <option value="cantidad" <?= $balanza_modo === "cantidad" ? "selected" : "" ?>>PLU + peso / cantidad</option>
+            <option value="importe" <?= $balanza_modo === "importe" ? "selected" : "" ?>>PLU + importe</option>
+          </select>
+          <div class="form-text">Usa automatico salvo que la balanza cargue mal cantidad o importe.</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Digitos del PLU</label>
+          <input type="number" min="1" max="8" step="1" class="form-control" name="balanza_plu_digitos" value="<?= cfg_valor($config, "balanza_plu_digitos") !== "" ? cfg_valor($config, "balanza_plu_digitos") : "5" ?>">
+          <div class="form-text">Si el PLU es 1, podes cargar 1; se interpreta como 00001.</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Decimales de peso/cantidad</label>
+          <input type="number" min="0" max="4" step="1" class="form-control" name="balanza_valor_decimales" value="<?= cfg_valor($config, "balanza_valor_decimales") !== "" ? cfg_valor($config, "balanza_valor_decimales") : "3" ?>">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Decimales de importe</label>
+          <input type="number" min="0" max="4" step="1" class="form-control" name="balanza_importe_decimales" value="<?= cfg_valor($config, "balanza_importe_decimales") !== "" ? cfg_valor($config, "balanza_importe_decimales") : "2" ?>">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Prefijos peso/cantidad</label>
+          <input class="form-control" name="balanza_prefijos_cantidad" value="<?= cfg_valor($config, "balanza_prefijos_cantidad") !== "" ? cfg_valor($config, "balanza_prefijos_cantidad") : "20,21,23,25,27,29" ?>">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Prefijos importe</label>
+          <input class="form-control" name="balanza_prefijos_importe" value="<?= cfg_valor($config, "balanza_prefijos_importe") !== "" ? cfg_valor($config, "balanza_prefijos_importe") : "22,24,26,28" ?>">
+        </div>
         <div class="col-md-6">
           <label class="form-label">Logo del ticket</label>
           <input type="file" class="form-control" name="logo_ticket_archivo" accept=".jpg,.jpeg,.png,.gif,image/jpeg,image/png,image/gif">
@@ -398,6 +429,24 @@ foreach ($modulos_navbar as $clave_nav => $modulo_nav) {
         </div>
       </div>
       <div class="form-text mt-3">Guarda esta configuracion antes de probar conexion o subir un respaldo.</div>
+    </div>
+  </div>
+
+  <div class="card form-shell mb-3">
+    <div class="card-body p-4">
+      <h4 class="mb-1">Acceso al sistema</h4>
+      <div class="text-muted small mb-3">Define si el programa pide usuario y contraseña al abrir.</div>
+      <?php $auth_modo = (string)($config["auth_modo"] ?? "login"); ?>
+      <div class="row g-2">
+        <div class="col-md-6">
+          <label class="form-label">Modo de acceso</label>
+          <select class="form-select" name="auth_modo">
+            <option value="login" <?= $auth_modo === "login" ? "selected" : "" ?>>Con usuario y contraseña</option>
+            <option value="sin_login" <?= $auth_modo === "sin_login" ? "selected" : "" ?>>Entrar sin pedir nada</option>
+          </select>
+          <div class="form-text">Sin contraseña entra como administrador local. Para limitar vendedores, usa Usuarios.</div>
+        </div>
+      </div>
     </div>
   </div>
 

@@ -7,6 +7,16 @@ require_once __DIR__ . "/../../configuraciones/csrf.php";
 class ControladorAuth{
     public function login():void{
         iniciar_sesion();
+        if (auth_sin_login_habilitado()) {
+            $_SESSION["usuario_logueado"]=[
+                "id"=>0,
+                "usuario"=>"Sin login",
+                "rol"=>"ADMIN",
+                "permisos"=>[]
+            ];
+            header("Location:index.php?c=ventas&a=inicio");
+            return;
+        }
         $error="";
         if($_SERVER["REQUEST_METHOD"]==="POST"){
             $csrf=obtener_post("csrf","");
@@ -23,15 +33,19 @@ class ControladorAuth{
                     if($u===null)
                         $error="Usuario o contraseña incorrectos";
                     else{
-                        if(!password_verify($clave,$u["clave"]))
+                        if((int)($u["activo"] ?? 0) !== 1)
+                            $error="Usuario inactivo";
+                        else if(!password_verify($clave,$u["clave"]))
                             $error="Usuario o contraseña incorrectos";
                         else{
                             $_SESSION["usuario_logueado"]=[
                                 "id"=>(int)$u["id"],
                                 "usuario"=>$u["usuario"],
-                                "rol"=>$u["rol"]
+                                "rol"=>$u["rol"],
+                                "permisos"=>Usuario::permisos_array($u["permisos"] ?? "[]")
                             ];
                             header("Location:index.php?c=ventas&a=inicio");
+                            return;
                         }
                     }
                 }

@@ -257,7 +257,9 @@ function reporte_html_tabla(string $titulo, string $subtitulo, array $encabezado
     return "<!doctype html><html lang='es'><head><meta charset='utf-8'><title>$titulo_html</title><style>
 body{font-family:DejaVu Sans,Arial,sans-serif;color:#16202a;margin:0;background:#fff}
 .page{padding:28px}
-@media print{.page{padding:18px}}
+.print-actions{padding:16px 28px 0 28px}
+.print-btn{border:1px solid #1f6f8b;background:#1f6f8b;color:#fff;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer}
+@media print{.print-actions{display:none}.page{padding:18px}}
 .report-card{border:1px solid #cfd7e3;border-radius:8px;overflow:hidden}
 .company{padding:18px 22px;border-bottom:3px solid #1f6f8b;background:#f7fafc}
 .brand{font-size:24px;font-weight:800;letter-spacing:.4px;color:#12343f;text-transform:uppercase}
@@ -273,7 +275,7 @@ th,td{border-bottom:1px solid #e4e8ee;padding:7px 9px;font-size:12px;vertical-al
 td:first-child,th:first-child{white-space:normal;min-width:180px}
 th{background:#edf2f7;color:#23313f;text-align:left;font-weight:700;text-transform:uppercase;font-size:11px}
 tbody tr:nth-child(even){background:#fafcfd}.num{text-align:right}.center{text-align:center;color:#667085}
-</style></head><body><div class='page'><div class='report-card'><div class='company'><div class='brand'>$nombre</div><div class='legal'>$datos_principales</div><div class='contact'>$contacto_html</div></div><div class='title-row'><div class='title'><h1>$titulo_html</h1><div class='sub'>$subtitulo_html</div></div><div class='date-box'>Emitido<br><strong>$fecha</strong></div></div>$detalle_html<table><thead><tr>$thead</tr></thead><tbody>$filas</tbody></table></div></div></body></html>";
+</style></head><body><div class='print-actions'><button class='print-btn' type='button' onclick='window.print()'>Imprimir</button></div><div class='page'><div class='report-card'><div class='company'><div class='brand'>$nombre</div><div class='legal'>$datos_principales</div><div class='contact'>$contacto_html</div></div><div class='title-row'><div class='title'><h1>$titulo_html</h1><div class='sub'>$subtitulo_html</div></div><div class='date-box'>Emitido<br><strong>$fecha</strong></div></div>$detalle_html<table><thead><tr>$thead</tr></thead><tbody>$filas</tbody></table></div></div></body></html>";
 }
 
 function config_sistema_simple(): array {

@@ -15,6 +15,9 @@ $id = (int)($u["id"] ?? 0);
 $usuario = (string)($u["usuario"] ?? "");
 $rol = (string)($u["rol"] ?? "VENDEDOR");
 $activo = (int)($u["activo"] ?? 1);
+$modulos_permisos = $modulos_permisos ?? [];
+$permisos_usuario = $permisos_usuario ?? [];
+$sin_permisos_guardados = count($permisos_usuario) === 0;
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3 section-heading">
@@ -67,6 +70,20 @@ $activo = (int)($u["activo"] ?? 1);
         </div>
       </div>
 
+      <div class="mt-4" id="permisosUsuarioPanel">
+        <h5 class="mb-1">Permisos del vendedor</h5>
+        <div class="text-muted small mb-3">El administrador siempre ve todo. Para vendedor, marca que partes puede usar.</div>
+        <div class="row g-2">
+          <?php foreach ($modulos_permisos as $clave => $modulo): ?>
+            <?php $checked = $sin_permisos_guardados || in_array((string)$clave, $permisos_usuario, true); ?>
+            <label class="col-md-3 menu-config-item">
+              <input type="checkbox" name="permisos[]" value="<?= htmlspecialchars((string)$clave) ?>" <?= $checked ? "checked" : "" ?>>
+              <span><i class="bi <?= htmlspecialchars((string)$modulo["icono"]) ?>"></i> <?= htmlspecialchars((string)$modulo["texto"]) ?></span>
+            </label>
+          <?php endforeach; ?>
+        </div>
+      </div>
+
       <div class="form-actions mt-2">
         <a class="btn btn-outline-secondary" href="index.php?c=usuarios&a=index">Cancelar</a>
         <button class="btn btn-primary"><?= htmlspecialchars($texto_btn) ?></button>
@@ -80,4 +97,15 @@ function toggleClave(id) {
   if (!inp) return;
   inp.type = (inp.type === "password") ? "text" : "password";
 }
+document.addEventListener("DOMContentLoaded", function () {
+  const rol = document.querySelector('select[name="rol"]');
+  const panel = document.getElementById("permisosUsuarioPanel");
+  function syncPermisos() {
+    if (panel && rol)
+      panel.classList.toggle("d-none", rol.value === "ADMIN");
+  }
+  if (rol)
+    rol.addEventListener("change", syncPermisos);
+  syncPermisos();
+});
 </script>

@@ -12,6 +12,19 @@ La autorizacion fiscal definitiva no la decide el sistema local. El sistema vali
 
 ## Acceso
 
+## Estadísticas Simplificadas
+
+El sistema utiliza Vistas SQL para centralizar cálculos y evitar campos duplicados:
+
+1. **Top Ventas**: Los productos más exitosos (`vista_top_productos`).
+2. **Top Clientes**: Quiénes compran más seguido (`vista_top_clientes`).
+3. **Stock Alerta**: Reporte rápido de ítems por agotarse (`vista_resumen_stock`).
+3. **Exportación**: El menú de exportación ahora incluye automáticamente la Lista 1 (Público) y Lista 2 (Mayorista).
+
+Para que estas estadísticas sean precisas, las ventas deben estar confirmadas. Los presupuestos no afectan estas vistas.
+
+---
+
 1. Abrir el sistema desde el navegador.
 2. Ingresar usuario y clave.
 3. El menu superior muestra los modulos habilitados para el rol.

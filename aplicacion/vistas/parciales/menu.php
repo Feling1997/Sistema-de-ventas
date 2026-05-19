@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . "/../../modelos/CuentaCorriente.php";
+
 $logueado = false;
 $usuario = "";
 $rol = "";
@@ -17,22 +19,26 @@ $icono_cambio_modulo = $seccion_actual === "reparaciones" ? "bi-cash-stack" : "b
 $es_panel_aparte = $es_panel_aparte ?? false;
 $url_volver = $url_volver ?? "index.php?c=ventas&a=inicio";
 $config_navbar = config_sistema_simple();
+$cc_alertas_no_leidas = 0;
 
 if (isset($_SESSION["usuario_logueado"])) {
     $logueado = true;
     $usuario = (string)($_SESSION["usuario_logueado"]["usuario"] ?? "");
     $rol = (string)($_SESSION["usuario_logueado"]["rol"] ?? "");
     $id_usuario = (int)($_SESSION["usuario_logueado"]["id"] ?? 0);
+    $cc_alertas_no_leidas = CuentaCorriente::cantidad_vencidas_no_leidas($id_usuario);
     $permitidos = menu_modulos_permitidos_por_rol($rol);
     $claves_visibles = menu_obtener_preferencias_usuario($id_usuario, $rol);
     if (isset($permitidos["inicio"]))
         $menu_inicio = $permitidos["inicio"];
     foreach ($claves_visibles as $clave) {
-        if (isset($permitidos[$clave]))
+        if (isset($permitidos[$clave]) && usuario_puede_modulo($clave))
             $modulos_visibles[$clave] = $permitidos[$clave];
     }
     foreach ($permitidos as $clave => $modulo) {
         if ($clave === "inicio")
+            continue;
+        if (!usuario_puede_modulo($clave))
             continue;
         $modulo["clave"] = $clave;
         $modulo["activo"] = isset($modulos_visibles[$clave]);
@@ -151,7 +157,7 @@ if (isset($current_section_modulos["reparaciones"]))
 
       <?php if ($logueado && !empty($current_section_modulos) && !$es_panel_aparte): ?>
         <div class="app-module-bar-inline">
-          <?php foreach ($current_section_modulos as $modulo): ?>
+          <?php foreach ($current_section_modulos as $clave_modulo => $modulo): ?>
             <?php if ($seccion_actual === "reparaciones"): ?>
               <?php if ($controlador_actual === "reparaciones"): ?>
                 <button class="menu-icono menu-icono-inline app-nav-module-button js-reparaciones-nav<?= !empty($modulo["activo"]) ? " active" : "" ?>"
@@ -168,8 +174,12 @@ if (isset($current_section_modulos["reparaciones"]))
                 </a>
               <?php endif; ?>
             <?php else: ?>
-              <a class="menu-icono menu-icono-inline" href="<?= htmlspecialchars($modulo["url"]) ?>">
+              <?php $es_cta_cte = (string)($modulo["clave"] ?? $clave_modulo) === "cuentas_corrientes"; ?>
+              <a class="menu-icono menu-icono-inline<?= $es_cta_cte && $cc_alertas_no_leidas > 0 ? " menu-icono-alerta" : "" ?>" href="<?= htmlspecialchars($modulo["url"]) ?>">
                 <i class="bi <?= htmlspecialchars($modulo["icono"]) ?> <?= htmlspecialchars($modulo["clase"]) ?>"></i>
+                <?php if ($es_cta_cte && $cc_alertas_no_leidas > 0): ?>
+                  <span class="nav-alert-badge"><?= $cc_alertas_no_leidas > 99 ? "99+" : (int)$cc_alertas_no_leidas ?></span>
+                <?php endif; ?>
                 <span><?= htmlspecialchars($modulo["texto"]) ?></span>
               </a>
             <?php endif; ?>

@@ -71,31 +71,30 @@ class ControladorListasPrecios {
             $id_lista = (int)obtener_get("id", 0);
             $formato = strtolower((string)obtener_get("formato", "html"));
             $listas = ListaPrecio::listar(true);
-            $nombre_lista = "Precio publico";
+            $nombre_lista = "";
             foreach ($listas as $lista) {
                 if ((int)$lista["id"] === $id_lista)
                     $nombre_lista = (string)$lista["nombre"];
             }
-            if ($id_lista <= 0)
-                $nombre_lista = "Lista general";
+            if ($id_lista <= 0 || $nombre_lista === "") {
+                flash_error("Selecciona una lista de precios cargada.");
+                redirigir("index.php?c=exportaciones&a=index");
+                return;
+            }
             $productos = ListaPrecio::productos_para_exportar($id_lista);
-            if ($formato === "csv") {
+            $base_archivo = "lista_precios_" . $nombre_lista;
+            if ($formato === "csv" || $formato === "xls" || $formato === "excel") {
                 header("Content-Type: text/csv; charset=utf-8");
-                header("Content-Disposition: attachment; filename=lista_precios.csv");
+                header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "csv") . "\"");
                 $out = fopen("php://output", "w");
-                fputcsv($out, ["Producto", "Codigo", "Unidad", "Precio"]);
+                fprintf($out, "\xEF\xBB\xBF");
+                fputcsv($out, ["Producto", "Codigo", "Unidad", "Precio"], ";");
                 foreach ($productos as $p)
-                    fputcsv($out, [$p["nombre"], $p["cod_barras"], $p["unidad"], numero_precio_para_exportar($p["precio_lista"] ?? 0, 2)]);
+                    fputcsv($out, [$p["nombre"], $p["cod_barras"], $p["unidad"], numero_precio_para_exportar($p["precio_lista"] ?? 0, 2)], ";");
                 fclose($out);
                 return;
             }
             $html = $this->html_lista_precios($productos, $nombre_lista);
-            if ($formato === "xls" || $formato === "excel") {
-                header("Content-Type: application/vnd.ms-excel; charset=utf-8");
-                header("Content-Disposition: attachment; filename=lista_precios.xls");
-                echo $html;
-                return;
-            }
             if ($formato === "pdf") {
                 $autoload = __DIR__ . "/../../vendor/autoload.php";
                 if (file_exists($autoload)) {
@@ -105,7 +104,7 @@ class ControladorListasPrecios {
                     $dompdf->setPaper("A4", "portrait");
                     $dompdf->render();
                     header("Content-Type: application/pdf");
-                    header("Content-Disposition: attachment; filename=lista_precios.pdf");
+                    header("Content-Disposition: attachment; filename=\"" . $this->nombre_archivo($base_archivo, "pdf") . "\"");
                     echo $dompdf->output();
                     return;
                 }
@@ -120,5 +119,22 @@ class ControladorListasPrecios {
             $filas .= "<tr><td>" . htmlspecialchars((string)$p["nombre"]) . "</td><td>" . htmlspecialchars((string)$p["cod_barras"]) . "</td><td>" . htmlspecialchars((string)($p["unidad"] ?? "")) . "</td><td class='num'>" . htmlspecialchars(precio_para_mostrar($p["precio_lista"] ?? 0)) . "</td></tr>";
         }
         return reporte_html_tabla($nombre_lista, "Lista de precios vigente", ["Producto", "Codigo", "Unidad", "Precio"], $filas, 4);
+    }
+
+    private function nombre_archivo(string $base, string $extension): string {
+        return $this->slug_archivo($base) . "_" . date("Ymd_His") . "." . ltrim($extension, ".");
+    }
+
+    private function slug_archivo(string $texto): string {
+        $texto = trim($texto);
+        $texto = strtr($texto, [
+            "á" => "a", "é" => "e", "í" => "i", "ó" => "o", "ú" => "u", "ñ" => "n",
+            "Á" => "a", "É" => "e", "Í" => "i", "Ó" => "o", "Ú" => "u", "Ñ" => "n",
+            "ü" => "u", "Ü" => "u"
+        ]);
+        $texto = strtolower($texto);
+        $texto = preg_replace('/[^a-z0-9]+/', '_', $texto) ?? "";
+        $texto = trim($texto, "_");
+        return $texto !== "" ? $texto : "exportacion";
     }
 }

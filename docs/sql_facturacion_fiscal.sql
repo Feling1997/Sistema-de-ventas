@@ -34,5 +34,6 @@ CREATE TABLE IF NOT EXISTS fiscal_cola (
     creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_fiscal_cola_estado (estado, proximo_intento),
+    KEY idx_fiscal_cola_actualizado (actualizado_en),
     CONSTRAINT fk_fiscal_cola_comprobante FOREIGN KEY (id_comprobante) REFERENCES fiscal_comprobantes(id)
 );
