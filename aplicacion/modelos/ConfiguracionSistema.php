@@ -23,6 +23,8 @@ class ConfiguracionSistema {
             "punto_venta" => (int)($empresa["punto_venta"] ?? 1),
             "formato_impresion_ticket" => "80",
             "texto_pie_ticket" => "Gracias por su compra",
+            "ticket_fuente" => "Arial",
+            "ticket_tamano_fuente" => "12",
             "controlar_stock_ventas" => "1",
             "balanza_modo" => "auto",
             "balanza_plu_digitos" => "5",
@@ -31,10 +33,14 @@ class ConfiguracionSistema {
             "balanza_prefijos_cantidad" => "20,21,23,25,27,29",
             "balanza_prefijos_importe" => "22,24,26,28",
             "logo_ticket" => "",
+            "ticket_imagen_completa" => "0",
+            "ticket_logo_termico" => "1",
             "url_reparaciones" => "index.php?c=reparaciones&a=index",
             "mostrar_reparaciones" => "1",
             "atajo_reparaciones" => "F9",
+            "configuracion_separada" => "1",
             "color_acento" => "#1f6f8b",
+            "color_secundario" => "#48aaa5",
             "color_fondo" => "#f4f6f8",
             "color_fondo_secundario" => "#f9fbfc",
             "color_tarjetas" => "#ffffff",
@@ -68,6 +74,18 @@ class ConfiguracionSistema {
             "backup_b2_bucket_id" => "",
             "backup_b2_bucket_name" => "",
             "backup_b2_carpeta" => "ventas-reparaciones",
+            "backup_automatico" => "1",
+            "backup_frecuencia" => "diario",
+            "backup_hora" => "18:55",
+            "backup_aviso_minutos" => "5",
+            "backup_local_habilitado" => "1",
+            "backup_local_carpeta" => "",
+            "backup_auto_local" => "1",
+            "backup_auto_backblaze" => "0",
+            "backup_ultimo" => "",
+            "backup_ultimo_estado" => "",
+            "backup_ultimo_error" => "",
+            "backup_auto_ultimo_dia" => "",
             "auth_modo" => "login",
         ];
     }
@@ -120,6 +138,7 @@ class ConfiguracionSistema {
         $arca = self::configuracion_arca_base();
         $datos = self::obtener();
         $arca["empresa"] = array_merge($arca["empresa"] ?? [], [
+            "nombre_comercio" => $datos["nombre_comercio"],
             "cuit" => $datos["cuit"],
             "punto_venta" => (int)$datos["punto_venta"],
             "condicion_iva" => $datos["condicion_iva"],
@@ -133,7 +152,11 @@ class ConfiguracionSistema {
             "sitio_web" => $datos["sitio_web"],
             "formato_impresion_ticket" => $datos["formato_impresion_ticket"],
             "texto_pie_ticket" => $datos["texto_pie_ticket"],
+            "ticket_fuente" => $datos["ticket_fuente"],
+            "ticket_tamano_fuente" => $datos["ticket_tamano_fuente"],
             "logo_ticket" => $datos["logo_ticket"],
+            "ticket_imagen_completa" => $datos["ticket_imagen_completa"],
+            "ticket_logo_termico" => $datos["ticket_logo_termico"],
         ]);
         return $arca;
     }
@@ -162,7 +185,7 @@ class ConfiguracionSistema {
             $valor = $entrada[$clave] ?? "";
             if ($clave === "punto_venta")
                 $datos[$clave] = max(1, (int)$valor);
-            else if (in_array($clave, ["mostrar_reparaciones", "navbar_mostrar_marca", "navbar_mostrar_config", "navbar_mostrar_usuario", "navbar_mostrar_rol", "navbar_mostrar_cambio_modulo", "navbar_mostrar_salir", "backup_b2_habilitado", "controlar_stock_ventas"], true))
+            else if (in_array($clave, ["mostrar_reparaciones", "configuracion_separada", "navbar_mostrar_marca", "navbar_mostrar_config", "navbar_mostrar_usuario", "navbar_mostrar_rol", "navbar_mostrar_cambio_modulo", "navbar_mostrar_salir", "backup_b2_habilitado", "backup_automatico", "backup_local_habilitado", "backup_auto_local", "backup_auto_backblaze", "controlar_stock_ventas", "ticket_imagen_completa", "ticket_logo_termico"], true))
                 $datos[$clave] = ((string)$valor === "1") ? "1" : "0";
             else if ($clave === "navbar_boton_opacidad") {
                 $opacidad = max(0, min(100, (int)$valor));
@@ -175,9 +198,27 @@ class ConfiguracionSistema {
                 $modo = trim((string)$valor);
                 $datos[$clave] = in_array($modo, ["login", "sin_login"], true) ? $modo : "login";
             }
+            else if ($clave === "backup_frecuencia") {
+                $frecuencia = trim((string)$valor);
+                $datos[$clave] = in_array($frecuencia, ["diario", "semanal", "manual"], true) ? $frecuencia : "diario";
+            }
+            else if ($clave === "backup_hora") {
+                $hora = trim((string)$valor);
+                $datos[$clave] = preg_match('/^\d{2}:\d{2}$/', $hora) ? $hora : "18:55";
+            }
+            else if ($clave === "backup_aviso_minutos") {
+                $datos[$clave] = (string)max(0, min(180, (int)$valor));
+            }
             else if ($clave === "formato_impresion_ticket") {
                 $formato = trim((string)$valor);
                 $datos[$clave] = in_array($formato, ["a4", "80", "58"], true) ? $formato : "80";
+            }
+            else if ($clave === "ticket_fuente") {
+                $fuente = trim((string)$valor);
+                $datos[$clave] = in_array($fuente, ["Arial", "Verdana", "Courier New", "Tahoma"], true) ? $fuente : "Arial";
+            }
+            else if ($clave === "ticket_tamano_fuente") {
+                $datos[$clave] = (string)max(10, min(18, (int)$valor));
             }
             else if ($clave === "balanza_modo") {
                 $modo = trim((string)$valor);
@@ -202,7 +243,7 @@ class ConfiguracionSistema {
             else if ($clave === "color_acento") {
                 $color = trim((string)$valor);
                 $datos[$clave] = preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : "#1f6f8b";
-            } else if (in_array($clave, ["color_fondo", "color_fondo_secundario", "color_tarjetas", "color_texto", "color_texto_suave", "color_borde", "color_panel_inicio", "color_panel_inicio_2", "navbar_color_1", "navbar_color_2", "navbar_texto_color", "navbar_boton_fondo", "navbar_boton_borde"], true)) {
+            } else if (in_array($clave, ["color_secundario", "color_fondo", "color_fondo_secundario", "color_tarjetas", "color_texto", "color_texto_suave", "color_borde", "color_panel_inicio", "color_panel_inicio_2", "navbar_color_1", "navbar_color_2", "navbar_texto_color", "navbar_boton_fondo", "navbar_boton_borde"], true)) {
                 $color = trim((string)$valor);
                 $datos[$clave] = preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : (string)self::valores_defecto()[$clave];
             } else if ($clave === "tema_paneles") {

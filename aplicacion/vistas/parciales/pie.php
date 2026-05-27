@@ -19,6 +19,7 @@
         return;
       new DataTable(selector, {
         searching: false,
+        ordering: false,
         language: {
           search: 'Buscar:',
           lengthMenu: 'Mostrar _MENU_',
@@ -128,8 +129,12 @@
         window.history.replaceState({}, '', url);
         enlazarBusquedas(document);
         enlazarExportaciones(document);
+        enlazarBackupDirectorio(document);
+        actualizarEtiquetaDirectorioBackup();
+        enlazarBackupPc(document);
         inicializarDataTables(document);
         inicializarVentasDetalle(document);
+        enlazarOrdenamiento(document);
       })
       .catch(function () {
         window.location.href = url;
@@ -278,11 +283,302 @@
     });
   }
 
+  function nombreArchivoBackup() {
+    const fecha = new Date();
+    const pad = function (n) { return String(n).padStart(2, '0'); };
+    return 'respaldo_ventas_reparaciones_' +
+      fecha.getFullYear() + pad(fecha.getMonth() + 1) + pad(fecha.getDate()) + '_' +
+      pad(fecha.getHours()) + pad(fecha.getMinutes()) + pad(fecha.getSeconds()) + '.tar.gz';
+  }
+
+  function backupDb() {
+    return new Promise(function (resolve, reject) {
+      const req = indexedDB.open('ventas-backup-local', 1);
+      req.onupgradeneeded = function () {
+        req.result.createObjectStore('handles');
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+
+  async function backupGuardarHandle(handle) {
+    const db = await backupDb();
+    return new Promise(function (resolve, reject) {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.objectStore('handles').put(handle, 'directorio');
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error); };
+    });
+  }
+
+  async function backupObtenerHandle() {
+    if (!window.indexedDB)
+      return null;
+    const db = await backupDb();
+    return new Promise(function (resolve) {
+      const tx = db.transaction('handles', 'readonly');
+      const req = tx.objectStore('handles').get('directorio');
+      req.onsuccess = function () { resolve(req.result || null); };
+      req.onerror = function () { resolve(null); };
+    });
+  }
+
+  async function backupTienePermiso(handle) {
+    if (!handle)
+      return false;
+    const opts = { mode: 'readwrite' };
+    if ((await handle.queryPermission(opts)) === 'granted')
+      return true;
+    return (await handle.requestPermission(opts)) === 'granted';
+  }
+
+  async function descargarBackupBlob() {
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    const csrf = csrfMeta ? csrfMeta.getAttribute('content') || '' : '';
+    if (!csrf)
+      throw new Error('No se encontro el token de seguridad. Recarga la pagina.');
+    const response = await fetch('index.php?c=configuracion&a=descargar_respaldo_pc', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: 'csrf=' + encodeURIComponent(csrf)
+    });
+    if (!response.ok) {
+      const texto = await response.text();
+      throw new Error(texto || 'No se pudo generar el backup.');
+    }
+    return response.blob();
+  }
+
+  async function guardarBackupEnDirectorio(handle) {
+    if (!await backupTienePermiso(handle))
+      throw new Error('No hay permiso para escribir en la carpeta elegida.');
+    const nombre = nombreArchivoBackup();
+    const blob = await descargarBackupBlob();
+    const fileHandle = await handle.getFileHandle(nombre, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return nombre;
+  }
+
+  function actualizarEtiquetaDirectorioBackup() {
+    const nombre = localStorage.getItem('backup-directorio-nombre') || '';
+    document.querySelectorAll('[data-backup-directory-label="true"]').forEach(function (label) {
+      if (nombre)
+        label.textContent = 'Carpeta elegida en este navegador: ' + nombre + '. La ruta completa no se muestra por seguridad del navegador.';
+    });
+  }
+
+  function enlazarBackupDirectorio(root) {
+    root.querySelectorAll('[data-backup-directory-picker="true"]').forEach(function (boton) {
+      if (boton.dataset.backupDirBound === '1')
+        return;
+      boton.dataset.backupDirBound = '1';
+      boton.addEventListener('click', async function () {
+        if (typeof window.showDirectoryPicker !== 'function') {
+          alert('Tu navegador no permite examinar carpetas. Usa Chrome/Edge actualizado o escribi la ruta fija, por ejemplo E:\\Respaldos.');
+          return;
+        }
+        try {
+          const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+          if (!await backupTienePermiso(handle))
+            throw new Error('No hay permiso para escribir en la carpeta.');
+          await backupGuardarHandle(handle);
+          localStorage.setItem('backup-directorio-nombre', handle.name || 'carpeta elegida');
+          actualizarEtiquetaDirectorioBackup();
+          alert('Carpeta de backup automatico seleccionada correctamente.');
+        } catch (err) {
+          if (err && err.name === 'AbortError')
+            return;
+          alert(err && err.message ? err.message : 'No se pudo seleccionar la carpeta.');
+        }
+      });
+    });
+  }
+
+  function enlazarBackupPc(root) {
+    root.querySelectorAll('[data-backup-save-picker="true"]').forEach(function (boton) {
+      if (boton.dataset.backupPcBound === '1')
+        return;
+      boton.dataset.backupPcBound = '1';
+      boton.addEventListener('click', async function () {
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        const csrf = csrfMeta ? csrfMeta.getAttribute('content') || '' : '';
+        if (!csrf) {
+          alert('No se encontro el token de seguridad. Recarga la pagina.');
+          return;
+        }
+        if (typeof window.showSaveFilePicker !== 'function') {
+          alert('Tu navegador no permite examinar carpetas desde el sistema. Escribi la ruta en el campo, por ejemplo E:\\Respaldos, o usa Chrome/Edge actualizado.');
+          return;
+        }
+        const nombre = nombreArchivoBackup();
+        let handle = null;
+        try {
+          handle = await window.showSaveFilePicker({
+            suggestedName: nombre,
+            types: [{
+              description: 'Respaldo del sistema',
+              accept: { 'application/gzip': ['.gz'] }
+            }]
+          });
+        } catch (err) {
+          return;
+        }
+        boton.disabled = true;
+        const textoOriginal = boton.innerHTML;
+        boton.innerHTML = '<span class="bi bi-clock-history"></span> Generando backup...';
+        try {
+          const blob = await descargarBackupBlob();
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          alert('Backup guardado correctamente.');
+        } catch (err) {
+          alert(err && err.message ? err.message : 'No se pudo guardar el backup.');
+        } finally {
+          boton.disabled = false;
+          boton.innerHTML = textoOriginal;
+        }
+      });
+    });
+  }
+
+  function scopeOrdenamiento() {
+    const params = new URLSearchParams(window.location.search);
+    return 'orden:' + (params.get('c') || 'ventas') + ':' + (params.get('a') || 'index');
+  }
+
+  function aplicarOrdenGuardado() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('orden') || !params.has('c'))
+      return;
+    const guardado = sessionStorage.getItem(scopeOrdenamiento());
+    if (!guardado)
+      return;
+    try {
+      const datos = JSON.parse(guardado);
+      if (!datos || !datos.orden || !datos.direccion)
+        return;
+      params.set('orden', datos.orden);
+      params.set('direccion', datos.direccion);
+      window.location.replace(window.location.pathname + '?' + params.toString());
+    } catch (e) {
+      sessionStorage.removeItem(scopeOrdenamiento());
+    }
+  }
+
+  function enlazarOrdenamiento(root) {
+    root.querySelectorAll('.js-sort-link').forEach(function (link) {
+      if (link.dataset.sortBound === '1')
+        return;
+      link.dataset.sortBound = '1';
+      link.addEventListener('click', function () {
+        const direccion = link.dataset.sortDirection || '';
+        if (!direccion)
+          sessionStorage.removeItem(scopeOrdenamiento());
+        else
+          sessionStorage.setItem(scopeOrdenamiento(), JSON.stringify({ orden: link.dataset.sortKey || '', direccion: direccion }));
+      });
+    });
+  }
+
+  function mostrarAvisoBackup(mensaje) {
+    alert(mensaje);
+  }
+
+  function ejecutarBackupAutomatico() {
+    const body = document.body;
+    if (!body || body.dataset.backupAutomatico !== '1')
+      return;
+    if ((body.dataset.backupFrecuencia || 'diario') === 'manual')
+      return;
+    const hora = body.dataset.backupHora || '';
+    const partes = hora.split(':');
+    if (partes.length < 2)
+      return;
+    const hh = Number(partes[0]);
+    const mm = Number(partes[1]);
+    if (!Number.isInteger(hh) || !Number.isInteger(mm))
+      return;
+    const ahora = new Date();
+    const objetivo = new Date();
+    objetivo.setHours(hh, mm, 0, 0);
+    const avisoMinutos = Math.max(0, Math.min(180, parseInt(body.dataset.backupAvisoMinutos || '5', 10) || 0));
+    const desde = new Date(objetivo.getTime() - avisoMinutos * 60000);
+    const hasta = new Date(objetivo.getTime() + 60 * 60000);
+    if (ahora < desde || ahora > hasta)
+      return;
+    const fecha = String(ahora.getFullYear()) + String(ahora.getMonth() + 1).padStart(2, '0') + String(ahora.getDate()).padStart(2, '0');
+    const clave = 'backup-auto-' + fecha + '-' + hora;
+    const estadoGuardado = localStorage.getItem(clave) || '';
+    if (estadoGuardado === 'ok' || estadoGuardado === 'error-mostrado' || sessionStorage.getItem(clave) === 'procesando')
+      return;
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    const csrf = csrfMeta ? csrfMeta.getAttribute('content') || '' : '';
+    if (!csrf)
+      return;
+    const ejecutar = sessionStorage.getItem(clave + '-confirmado') === '1' || confirm('Se va a realizar el backup automatico configurado. Ejecutar ahora?');
+    if (!ejecutar)
+      return;
+    sessionStorage.setItem(clave + '-confirmado', '1');
+    sessionStorage.setItem(clave, 'procesando');
+    (async function () {
+      let localNavegadorOk = false;
+      if (body.dataset.backupAutoLocal === '1') {
+        const handle = await backupObtenerHandle();
+        if (handle) {
+          await guardarBackupEnDirectorio(handle);
+          localNavegadorOk = true;
+        }
+      }
+      const omitirLocal = localNavegadorOk ? '1' : '0';
+      if (body.dataset.backupAutoBackblaze !== '1' && localNavegadorOk)
+        return { ok: true, mensaje: 'Backup automatico guardado en la carpeta elegida.' };
+      const response = await fetch('index.php?c=configuracion&a=ejecutar_respaldo_programado', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+        body: 'csrf=' + encodeURIComponent(csrf) + '&omitir_local_navegador=' + encodeURIComponent(omitirLocal)
+      });
+      return response.json();
+    })()
+      .then(function (data) {
+        sessionStorage.removeItem(clave);
+        if (data && data.ok) {
+          localStorage.setItem(clave, 'ok');
+          return;
+        }
+        localStorage.setItem(clave, 'error-mostrado');
+        mostrarAvisoBackup((data && data.mensaje) ? data.mensaje : 'No se pudo realizar el backup automatico.');
+      })
+      .catch(function () {
+        sessionStorage.removeItem(clave);
+        localStorage.setItem(clave, 'error-mostrado');
+        mostrarAvisoBackup('No se pudo realizar el backup automatico. Revisa la conexion, Backblaze o la unidad externa.');
+      });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
+    aplicarOrdenGuardado();
     enlazarBusquedas(document);
     enlazarExportaciones(document);
+    enlazarBackupDirectorio(document);
+    actualizarEtiquetaDirectorioBackup();
+    enlazarBackupPc(document);
     inicializarDataTables(document);
     inicializarVentasDetalle(document);
+    enlazarOrdenamiento(document);
+    ejecutarBackupAutomatico();
+    setInterval(ejecutarBackupAutomatico, 60000);
   });
 
   document.addEventListener('keydown', function (e) {

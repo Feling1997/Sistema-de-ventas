@@ -24,7 +24,15 @@ class ControladorClientes {
 
     public function index(): void {
         if ($this->permiso()) {
-            $clientes = Cliente::listar_todos();
+            $orden_clientes = orden_parametros([
+                "nombre" => "c.nombre",
+                "cliente" => "c.nombre",
+                "descripcion" => "c.nombre",
+                "codigo" => "c.dni",
+                "codigo_barras" => "c.dni",
+                "fecha" => "c.creado_en"
+            ], "nombre", "ASC");
+            $clientes = Cliente::listar_todos($orden_clientes["sql"]);
             $texto_buscar = trim((string)obtener_get("buscar", ""));
             $campo_buscar = trim((string)obtener_get("campo", "todos"));
             $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));

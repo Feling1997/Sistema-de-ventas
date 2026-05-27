@@ -169,8 +169,20 @@ $opciones_lista = function () use ($listas, $hay_listas_precios): void {
     <form method="POST" action="index.php?c=exportaciones&a=importar_articulos_excel" enctype="multipart/form-data" class="row g-3 align-items-end">
       <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token()) ?>">
       <div class="col-md-7">
-        <label class="form-label">Archivo CSV de Excel</label>
-        <input type="file" class="form-control" name="archivo_articulos" accept=".csv,text/csv,.txt,.xls">
+        <label class="form-label">Archivo Excel o CSV</label>
+        <input type="file" class="form-control" name="archivo_articulos" accept=".csv,text/csv,.txt,.xls,.xlsx,.xlsm">
+      </div>
+      <div class="col-md-7">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="importar_disponibles" value="1" id="importarDisponibles" checked>
+          <label class="form-check-label" for="importarDisponibles">Importar igual las listas que coinciden aunque haya columnas sin lista cargada</label>
+        </div>
+      </div>
+      <div class="col-md-7">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="crear_productos" value="1" id="crearProductosImportacion">
+          <label class="form-check-label" for="crearProductosImportacion">Crear productos que no existen usando Codigo y Descripcion del archivo</label>
+        </div>
       </div>
       <div class="col-md-3">
         <button class="btn btn-primary w-100">Importar listas</button>

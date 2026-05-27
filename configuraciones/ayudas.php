@@ -45,6 +45,175 @@ function obtener_get(string $clave, $defecto=""){
     return $valor;
 }
 
+function configuraciones_defecto_db(): array {
+    $datos = [
+        "nombre_comercio" => "MI COMERCIO",
+        "razon_social" => "",
+        "cuit" => "",
+        "condicion_iva" => "",
+        "domicilio" => "",
+        "localidad" => "",
+        "provincia" => "",
+        "telefonos" => "",
+        "whatsapp" => "",
+        "email" => "",
+        "sitio_web" => "",
+        "ingresos_brutos" => "",
+        "inicio_actividades" => "",
+        "punto_venta" => "1",
+        "logo" => "",
+        "favicon" => "",
+        "logo_ticket" => "",
+        "ticket_imagen_completa" => "0",
+        "ticket_logo_termico" => "1",
+        "color_acento" => "#1f6f8b",
+        "color_secundario" => "#48aaa5",
+        "color_fondo" => "#f4f6f8",
+        "color_fondo_secundario" => "#f9fbfc",
+        "color_tarjetas" => "#ffffff",
+        "color_texto" => "#203040",
+        "color_texto_suave" => "#657789",
+        "color_borde" => "#dbe3ea",
+        "color_panel_inicio" => "#155e75",
+        "color_panel_inicio_2" => "#48aaa5",
+        "navbar_marca_texto" => "MI COMERCIO",
+        "navbar_mostrar_marca" => "1",
+        "navbar_mostrar_config" => "1",
+        "navbar_mostrar_usuario" => "1",
+        "navbar_mostrar_rol" => "1",
+        "navbar_mostrar_cambio_modulo" => "1",
+        "navbar_mostrar_salir" => "1",
+        "navbar_color_1" => "#000000",
+        "navbar_color_2" => "#1f2937",
+        "navbar_texto_color" => "#ffffff",
+        "navbar_boton_fondo" => "#ffffff",
+        "navbar_boton_borde" => "#ffffff",
+        "navbar_boton_opacidad" => "10",
+        "navbar_modulos_orden" => "ventas,nueva_venta,clientes,stock,productos,listas_precios,exportaciones,cuentas_corrientes,reparaciones",
+        "navbar_modulos_visibles" => "ventas,nueva_venta,clientes,stock,productos,listas_precios,exportaciones,cuentas_corrientes,reparaciones",
+        "tema_paneles" => "claro",
+        "tema_modo" => "claro",
+        "ui_radio_bordes" => "8",
+        "ui_tamano_tarjetas" => "medio",
+        "ui_sombras" => "1",
+        "ui_animaciones" => "1",
+        "imagen_panel" => "",
+        "ventas_cantidad_decimales" => "3",
+        "ventas_descuento_automatico" => "0",
+        "ventas_rapidas" => "1",
+        "ventas_cliente_defecto" => "Consumidor Final",
+        "ventas_consumidor_final_auto" => "1",
+        "ventas_confirmar_cierre" => "1",
+        "ventas_sonido_confirmacion" => "0",
+        "ventas_color_pendiente" => "#f59e0b",
+        "ventas_color_completada" => "#16a34a",
+        "ventas_color_cancelada" => "#dc2626",
+        "formato_impresion_ticket" => "80",
+        "texto_pie_ticket" => "Gracias por su compra",
+        "ticket_fuente" => "Arial",
+        "ticket_tamano_fuente" => "12",
+        "controlar_stock_ventas" => "1",
+        "productos_multiples_listas" => "1",
+        "productos_mostrar_stock_minimo" => "1",
+        "productos_permitir_stock_negativo" => "0",
+        "productos_activar_escaner" => "1",
+        "productos_formato_codigo_barras" => "ean13",
+        "productos_etiquetas" => "1",
+        "productos_importacion_excel" => "1",
+        "productos_reglas_automaticas" => "0",
+        "clientes_campos_extra" => "0",
+        "clientes_validar_documento" => "0",
+        "clientes_lista_defecto" => "",
+        "listas_redondeo" => "0",
+        "listas_actualizar_costo" => "0",
+        "notificaciones_sonidos" => "0",
+        "notificaciones_toasts" => "1",
+        "notificaciones_alertas" => "1",
+        "notificaciones_stock_bajo" => "1",
+        "notificaciones_ventas" => "1",
+        "notificaciones_backup" => "1",
+        "seguridad_tiempo_sesion" => "120",
+        "seguridad_2fa_futuro" => "0",
+        "seguridad_ips_permitidas" => "",
+        "seguridad_bloqueos" => "1",
+        "seguridad_logs" => "1",
+        "auth_modo" => "login",
+        "backup_b2_habilitado" => "0",
+        "backup_b2_key_id" => "",
+        "backup_b2_application_key" => "",
+        "backup_b2_bucket_id" => "",
+        "backup_b2_bucket_name" => "",
+        "backup_b2_carpeta" => "ventas-reparaciones",
+        "backup_google_drive_futuro" => "0",
+        "backup_automatico" => "1",
+        "backup_frecuencia" => "diario",
+        "backup_hora" => "18:55",
+        "backup_aviso_minutos" => "5",
+        "backup_local_habilitado" => "1",
+        "backup_local_carpeta" => "",
+        "backup_auto_local" => "1",
+        "backup_auto_backblaze" => "0",
+        "backup_ultimo" => "",
+        "backup_ultimo_estado" => "",
+        "backup_ultimo_error" => "",
+        "backup_auto_ultimo_dia" => "",
+        "url_reparaciones" => "index.php?c=reparaciones&a=index",
+        "mostrar_reparaciones" => "1",
+        "atajo_reparaciones" => "F9",
+        "configuracion_separada" => "1",
+        "balanza_modo" => "auto",
+        "balanza_plu_digitos" => "5",
+        "balanza_valor_decimales" => "3",
+        "balanza_importe_decimales" => "2",
+        "balanza_prefijos_cantidad" => "20,21,23,25,27,29",
+        "balanza_prefijos_importe" => "22,24,26,28"
+    ];
+    return $datos;
+}
+
+function config_cache_reset(): void {
+    $GLOBALS["config_cache_db"] = null;
+}
+
+function config_todas(): array {
+    if (!array_key_exists("config_cache_db", $GLOBALS))
+        $GLOBALS["config_cache_db"] = null;
+    $datos = $GLOBALS["config_cache_db"];
+    if (!is_array($datos)) {
+        $datos = configuraciones_defecto_db();
+        if (function_exists("obtener_pdo")) {
+            $pdo = obtener_pdo();
+            if ($pdo !== null) {
+                try {
+                    $pdo->exec("CREATE TABLE IF NOT EXISTS configuraciones (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        clave VARCHAR(120) NOT NULL,
+                        valor LONGTEXT NULL,
+                        tipo VARCHAR(40) NOT NULL DEFAULT 'texto',
+                        grupo VARCHAR(60) NOT NULL DEFAULT 'sistema',
+                        UNIQUE KEY uq_configuraciones_clave (clave),
+                        KEY idx_configuraciones_grupo (grupo)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                    $st = $pdo->query("SELECT clave, valor FROM configuraciones");
+                    $rows = $st ? $st->fetchAll() : [];
+                    foreach ($rows as $row)
+                        $datos[(string)$row["clave"]] = (string)($row["valor"] ?? "");
+                } catch (Throwable $e) {
+                    registrar_log("config_todas", $e->getMessage());
+                }
+            }
+        }
+        $GLOBALS["config_cache_db"] = $datos;
+    }
+    return $datos;
+}
+
+function config(string $nombre, string $valor_defecto = ""): string {
+    $datos = config_todas();
+    $valor = array_key_exists($nombre, $datos) ? (string)$datos[$nombre] : $valor_defecto;
+    return $valor;
+}
+
 function flash_ok(string $mensaje):void{
     iniciar_sesion();
     $_SESSION["flash_ok"]=$mensaje;
@@ -102,6 +271,51 @@ function valor_coincide_busqueda($valor, string $busqueda, string $metodo): bool
             break;
     }
     return $ok;
+}
+
+function orden_parametros(array $permitidos, string $defecto_campo, string $defecto_direccion = "ASC"): array {
+    $campo = strtolower(trim((string)obtener_get("orden", $defecto_campo)));
+    $direccion = strtoupper(trim((string)obtener_get("direccion", $defecto_direccion)));
+    $defecto_direccion = strtoupper($defecto_direccion) === "DESC" ? "DESC" : "ASC";
+    if (!array_key_exists($campo, $permitidos))
+        $campo = $defecto_campo;
+    if (!in_array($direccion, ["ASC", "DESC"], true))
+        $direccion = $defecto_direccion;
+    $resultado = [
+        "campo" => $campo,
+        "direccion" => $direccion,
+        "sql" => (string)$permitidos[$campo] . " " . $direccion,
+        "defecto_campo" => $defecto_campo,
+        "defecto_direccion" => $defecto_direccion
+    ];
+    return $resultado;
+}
+
+function orden_tabla_th(string $etiqueta, string $campo, array $orden_actual, string $tipo = "texto", array $extra_get = []): string {
+    $campo_actual = (string)($orden_actual["campo"] ?? "");
+    $direccion_actual = strtoupper((string)($orden_actual["direccion"] ?? ""));
+    $defecto_campo = (string)($orden_actual["defecto_campo"] ?? "");
+    $defecto_direccion = strtoupper((string)($orden_actual["defecto_direccion"] ?? "ASC"));
+    $activo = $campo_actual === $campo;
+    $proxima_direccion = "asc";
+    $icono = "bi bi-arrow-down-up sort-icon";
+    if ($activo && $direccion_actual === "ASC") {
+        $proxima_direccion = "desc";
+        $icono = ($tipo === "numero" ? "bi bi-sort-numeric-down" : "bi bi-sort-alpha-down") . " sort-icon";
+    } elseif ($activo && $direccion_actual === "DESC") {
+        $proxima_direccion = "";
+        $icono = ($tipo === "numero" ? "bi bi-sort-numeric-down" : "bi bi-sort-alpha-up-alt") . " sort-icon";
+    }
+    $params = array_merge($_GET, $extra_get);
+    if ($proxima_direccion === "" || ($campo === $defecto_campo && strtoupper($proxima_direccion) === $defecto_direccion)) {
+        unset($params["orden"], $params["direccion"]);
+    } else {
+        $params["orden"] = $campo;
+        $params["direccion"] = $proxima_direccion;
+    }
+    $href = "index.php?" . http_build_query($params);
+    $html = '<th><a class="sort-link js-sort-link" href="' . htmlspecialchars($href) . '" data-sort-key="' . htmlspecialchars($campo) . '" data-sort-direction="' . htmlspecialchars($proxima_direccion) . '">' . htmlspecialchars($etiqueta) . '<i class="' . htmlspecialchars($icono) . '" aria-hidden="true"></i></a></th>';
+    return $html;
 }
 
 function filtrar_registros_busqueda(array $registros, string $texto, string $campo, array $campos_permitidos, string $metodo = "contiene"): array {
@@ -314,13 +528,14 @@ function config_sistema_simple(): array {
         "tema_paneles" => "claro",
         "controlar_stock_ventas" => "1",
     ];
+    $datos_db = config_todas();
     if (!is_file($archivo))
-        return $defecto;
+        return array_merge($defecto, $datos_db);
     $json = @file_get_contents($archivo);
     $datos = is_string($json) ? json_decode($json, true) : null;
     if (!is_array($datos))
-        return $defecto;
-    return array_merge($defecto, $datos);
+        return array_merge($defecto, $datos_db);
+    return array_merge($defecto, $datos, $datos_db);
 }
 
 function normalizar_url_reparaciones(string $url): string {
@@ -344,7 +559,7 @@ function menu_modulos_base(): array {
         "listas_precios" => ["url" => "index.php?c=listas_precios&a=index", "icono" => "bi-tags-fill", "clase" => "icono-productos", "texto" => "Listas"],
         "exportaciones" => ["url" => "index.php?c=exportaciones&a=index", "icono" => "bi-graph-up-arrow", "clase" => "icono-exportaciones", "texto" => "Exportar"],
         "cuentas_corrientes" => ["url" => "index.php?c=cuentas_corrientes&a=index", "icono" => "bi-credit-card-fill", "clase" => "icono-ventas", "texto" => "Cta. cte."],
-        "configuraciones" => ["url" => "index.php?c=configuraciones&a=sistema", "icono" => "bi-gear-fill", "clase" => "icono-configuraciones", "texto" => "Configuracion"],
+        "configuraciones" => ["url" => "index.php?c=configuracion&a=index", "icono" => "bi-gear-fill", "clase" => "icono-configuraciones", "texto" => "Config"],
         "usuarios" => ["url" => "index.php?c=usuarios&a=index", "icono" => "bi-person-gear", "clase" => "icono-usuarios", "texto" => "Usuarios"]
     ];
     if ((string)($config["mostrar_reparaciones"] ?? "1") === "1") {

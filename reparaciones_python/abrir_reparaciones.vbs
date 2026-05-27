@@ -16,8 +16,11 @@ shell.CurrentDirectory = baseDir
 cerrarPuerto = "cmd.exe /c for /f ""tokens=5"" %p in ('netstat -ano ^| findstr "":8765"" ^| findstr ""LISTENING""') do taskkill /PID %p /F >nul 2>nul"
 shell.Run cerrarPuerto, 0, True
 
+pythonwExe = fso.BuildPath(baseDir, "python_runtime\pythonw.exe")
 pythonExe = fso.BuildPath(baseDir, "python_runtime\python.exe")
-If fso.FileExists(pythonExe) Then
+If fso.FileExists(pythonwExe) Then
+    comando = """" & pythonwExe & """ """ & fso.BuildPath(baseDir, "web_app.py") & """ --no-browser"
+ElseIf fso.FileExists(pythonExe) Then
     comando = "cmd.exe /c """"" & pythonExe & """ -u """ & fso.BuildPath(baseDir, "web_app.py") & """ --no-browser > """ & fso.BuildPath(baseDir, "reparaciones_error.log") & """ 2>&1"""
 Else
     comando = """" & fso.BuildPath(baseDir, "iniciar_web_oculto.bat") & """"

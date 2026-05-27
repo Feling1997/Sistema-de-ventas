@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . "/../modelos/ConfiguracionSistema.php";
+require_once __DIR__ . "/../modelos/Configuracion.php";
 require_once __DIR__ . "/../modelos/RespaldoSistema.php";
 require_once __DIR__ . "/../modelos/BackblazeB2.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
@@ -48,7 +49,7 @@ class ControladorConfiguraciones {
     }
 
     private function guardar_logo_ticket(string $actual): string {
-        return $this->guardar_imagen_config("logo_ticket_archivo", $actual, "ticket_logo");
+        return Configuracion::guardar_archivo("logo_ticket_archivo", $actual, "ticket_logo");
     }
 
     private function guardar_imagen_panel(string $actual): string {
@@ -61,12 +62,7 @@ class ControladorConfiguraciones {
 
     public function sistema(): void {
         if ($this->permiso_admin()) {
-            $config = ConfiguracionSistema::obtener();
-            $seccion_navbar = (string)obtener_get("seccion", "") === "reparaciones" ? "reparaciones" : "ventas";
-            $url_volver = $seccion_navbar === "reparaciones" ? "index.php?c=reparaciones&a=index" : "index.php?c=ventas&a=inicio";
-            include __DIR__ . "/../vistas/parciales/encabezado.php";
-            include __DIR__ . "/../vistas/configuraciones/sistema.php";
-            include __DIR__ . "/../vistas/parciales/pie.php";
+            redirigir("index.php?c=configuracion&a=index");
         }
     }
 

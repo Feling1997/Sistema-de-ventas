@@ -179,33 +179,12 @@ foreach ($clientes as $cliente_item) {
                 </div>
                 <div class="sales-product-panel d-none" id="productoPanel">
                   <div id="productoPanelSelect" class="sales-product-list" role="listbox" aria-label="Lista de productos">
-                    <?php foreach ($productos as $p): ?>
-                      <?php $precio_producto_lista = ListaPrecio::precio_producto_cargado((int)$p["id"], $id_lista_precio_actual); ?>
-                      <button type="button"
-                              class="sales-product-option <?= $id_producto_actual !== "" && (int)$id_producto_actual === (int)$p["id"] ? "active" : "" ?>"
-                              data-id="<?= (int)$p["id"] ?>"
-                              data-cb="<?= htmlspecialchars((string)($p["cod_barras"] ?? "")) ?>">
-                        <strong><?= htmlspecialchars($p["nombre"]) ?></strong>
-                        <span><?= htmlspecialchars($precio_producto_lista !== null && (float)$precio_producto_lista["precio"] > 0 ? precio_para_mostrar($precio_producto_lista["precio"]) : "SIN PRECIO") ?><?= !empty($p["cod_barras"]) ? " | CB: " . htmlspecialchars($p["cod_barras"]) : "" ?></span>
-                      </button>
-                    <?php endforeach; ?>
                   </div>
                 </div>
               </div>
               <div class="sales-add-item sales-product-select-hidden">
-                <select class="form-select" id="selectProducto" name="id_producto" required aria-label="Producto">
+                <select class="form-select" id="selectProducto" name="id_producto" aria-label="Producto">
                   <option value="" selected disabled>Seleccion&aacute; un producto</option>
-                  <?php foreach ($productos as $p): ?>
-                    <option value="<?= (int)$p["id"] ?>"
-                            data-cb="<?= htmlspecialchars((string)($p["cod_barras"] ?? "")) ?>"
-                            data-nombre="<?= htmlspecialchars((string)($p["nombre"] ?? "")) ?>"
-                            data-precio="<?= htmlspecialchars(numero_para_input($p["precio_final"] ?? 0, 2)) ?>"
-                            data-precios="<?= htmlspecialchars((string)($p["precios_lista"] ?? "")) ?>"
-                            <?= $id_producto_actual !== "" && (int)$id_producto_actual === (int)$p["id"] ? "selected" : "" ?>>
-                      <?php $precio_producto_lista = ListaPrecio::precio_producto_cargado((int)$p["id"], $id_lista_precio_actual); ?>
-                      <?= htmlspecialchars($p["nombre"]) ?> | <?= htmlspecialchars($precio_producto_lista !== null && (float)$precio_producto_lista["precio"] > 0 ? precio_para_mostrar($precio_producto_lista["precio"]) : "SIN PRECIO") ?> | CB: <?= htmlspecialchars($p["cod_barras"]) ?>
-                    </option>
-                  <?php endforeach; ?>
                 </select>
               </div>
               <div class="sales-add-item">
@@ -385,10 +364,10 @@ foreach ($clientes as $cliente_item) {
   const formAgregarVenta = document.getElementById('formAgregarVenta');
   const salesAgregarError = document.getElementById('salesAgregarError');
   const cantidadVenta = formAgregarVenta ? formAgregarVenta.querySelector('input[name="cantidad"]') : null;
-  const prodOptionsHTML = selProd ? selProd.innerHTML : '';
-  const prodPanelOptionsHTML = productoPanelSelect ? productoPanelSelect.innerHTML : '';
   const storageKey = 'ventas.nueva.form.v3';
   let enviandoProducto = false;
+  let busquedaProductosTimer = null;
+  let busquedaProductosSeq = 0;
   let scannerBuffer = '';
   let scannerTimer = null;
   let scannerUltimaTecla = 0;
@@ -500,6 +479,10 @@ foreach ($clientes as $cliente_item) {
     if (!op || !op.value) {
       precioUnitVenta.value = '';
       return;
+    }
+    if (cantidadVenta) {
+      const decimales = Math.max(0, Math.min(4, parseInt(op.getAttribute('data-decimales') || '3', 10) || 0));
+      cantidadVenta.step = String(1 / Math.pow(10, decimales));
     }
     const idLista = selListaPrecio ? selListaPrecio.value : '';
     const bruto = op.getAttribute('data-precios') || '';
@@ -634,9 +617,7 @@ foreach ($clientes as $cliente_item) {
     if (!selProd || codigo === '')
       return null;
     const codigoNorm = normalizarPlu(codigo);
-    const temp = document.createElement('select');
-    temp.innerHTML = prodOptionsHTML;
-    const opciones = Array.from(temp.querySelectorAll('option'));
+    const opciones = Array.from(selProd.querySelectorAll('option'));
     for (let i = 0; i < opciones.length; i++) {
       const op = opciones[i];
       if (!op.value)
@@ -646,6 +627,84 @@ foreach ($clientes as $cliente_item) {
         return op;
     }
     return null;
+  }
+
+  function escapeHtml(valor) {
+    const div = document.createElement('div');
+    div.textContent = String(valor || '');
+    return div.innerHTML;
+  }
+
+  function optionProductoHTML(p) {
+    return '<option value="' + String(p.id) + '" data-cb="' + escapeHtml(p.cod_barras || '') + '" data-nombre="' + escapeHtml(p.nombre || '') + '" data-precios="' + escapeHtml(p.precios_lista || '') + '" data-unidad="' + escapeHtml(p.stock_unidad || 'u') + '" data-decimales="' + String(p.unidad_decimales || 3) + '">' +
+      escapeHtml((p.nombre || '') + ' | ' + (p.precio_texto || 'SIN PRECIO') + (p.cod_barras ? ' | CB: ' + p.cod_barras : '')) +
+      '</option>';
+  }
+
+  function botonProductoHTML(p) {
+    return '<button type="button" class="sales-product-option" data-id="' + String(p.id) + '" data-cb="' + escapeHtml(p.cod_barras || '') + '">' +
+      '<strong>' + escapeHtml(p.nombre || '') + '</strong>' +
+      '<span>' + escapeHtml(p.precio_texto || 'SIN PRECIO') + (p.cod_barras ? ' | CB: ' + escapeHtml(p.cod_barras) : '') + '</span>' +
+      '</button>';
+  }
+
+  function cargarProductosEnUI(productos, seleccionado) {
+    const lista = Array.isArray(productos) ? productos : [];
+    if (selProd) {
+      selProd.innerHTML = '<option value="" selected disabled>Seleccioná un producto</option>' + lista.map(optionProductoHTML).join('');
+      if (seleccionado)
+        selProd.value = String(seleccionado);
+    }
+    if (productoPanelSelect) {
+      productoPanelSelect.innerHTML = lista.length > 0 ? lista.map(botonProductoHTML).join('') : '<div class="text-muted small px-2 py-2">Sin resultados.</div>';
+      activarBotonProducto(selProd ? selProd.value : '');
+      enlazarBotonesProducto();
+    }
+  }
+
+  async function buscarProductosServidor(textoEntrada) {
+    const textoBase = textoEntrada !== undefined ? textoEntrada : (inputProd ? inputProd.value : '');
+    const datos = datosEntradaProducto(textoBase);
+    const texto = datos.codigo.trim();
+    if (!selProd || texto === '') {
+      cargarProductosEnUI([], '');
+      precioProductoSeleccionado();
+      return;
+    }
+    const soloCodigo = modoBusquedaProducto && modoBusquedaProducto.value === 'codigo';
+    if (!soloCodigo && texto.length < 2) {
+      cargarProductosEnUI([], '');
+      return;
+    }
+    const seq = ++busquedaProductosSeq;
+    const params = new URLSearchParams({
+      c: 'ventas',
+      a: 'buscar_productos_json',
+      q: texto,
+      modo: soloCodigo ? 'codigo' : 'general',
+      id_lista_precio: selListaPrecio ? selListaPrecio.value : ''
+    });
+    try {
+      const respuesta = await fetch('index.php?' + params.toString(), {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      const data = await respuesta.json();
+      if (seq !== busquedaProductosSeq)
+        return;
+      cargarProductosEnUI(data && Array.isArray(data.productos) ? data.productos : [], selProd.value);
+      precioProductoSeleccionado();
+    } catch (e) {
+      if (productoPanelSelect)
+        productoPanelSelect.innerHTML = '<div class="text-danger small px-2 py-2">No se pudo buscar.</div>';
+    }
+  }
+
+  function programarBusquedaProductos(texto) {
+    if (busquedaProductosTimer)
+      clearTimeout(busquedaProductosTimer);
+    busquedaProductosTimer = setTimeout(function(){
+      buscarProductosServidor(texto);
+    }, 160);
   }
 
   function interpretarCodigoBalanza(codigo) {
@@ -736,7 +795,8 @@ foreach ($clientes as $cliente_item) {
     }
     if (!op)
       return false;
-    selProd.innerHTML = prodOptionsHTML;
+    if (!Array.from(selProd.options).some(function(opt){ return String(opt.value) === String(op.value); }))
+      selProd.appendChild(op.cloneNode(true));
     selProd.value = op.value;
     if (cantidadVenta)
       cantidadVenta.value = Number(cantidad).toFixed(3).replace(/\.?0+$/, '');
@@ -759,7 +819,6 @@ foreach ($clientes as $cliente_item) {
   function seleccionarProductoPorId(valor) {
     if (!selProd || !valor)
       return false;
-    selProd.innerHTML = prodOptionsHTML;
     selProd.value = String(valor);
     if (!selProd.value)
       return false;
@@ -791,7 +850,7 @@ foreach ($clientes as $cliente_item) {
     if (enviandoProducto || !formAgregarVenta)
       return false;
     if (!seleccionarCBExacto(valor))
-      return false;
+      selProd.value = '';
     syncClienteHidden();
     syncTipoComprobante();
     syncListaPrecio();
@@ -910,54 +969,7 @@ foreach ($clientes as $cliente_item) {
   }
 
   function filtrarProductos(textoEntrada){
-    if (!selProd)
-      return;
-    const textoBase = textoEntrada !== undefined ? textoEntrada : (inputProd ? inputProd.value : '');
-    const texto = datosEntradaProducto(textoBase).codigo.toLowerCase().trim();
-    const soloCodigo = modoBusquedaProducto && modoBusquedaProducto.value === 'codigo';
-    const seleccionado = selProd.value;
-    if (productoPanelSelect) {
-      if (texto === '') {
-        productoPanelSelect.innerHTML = prodPanelOptionsHTML;
-      } else {
-        const tempPanel = document.createElement('div');
-        tempPanel.innerHTML = prodPanelOptionsHTML;
-        const botones = Array.from(tempPanel.querySelectorAll('.sales-product-option'));
-        productoPanelSelect.innerHTML = '';
-        botones.forEach(btn => {
-          const cb = (btn.getAttribute('data-cb') || '').toLowerCase();
-          const contenido = (btn.textContent || '').toLowerCase();
-          const coincide = soloCodigo ? cb === texto : (contenido.includes(texto) || cb.includes(texto));
-          if (coincide)
-            productoPanelSelect.appendChild(btn);
-        });
-      }
-      activarBotonProducto(seleccionado);
-      enlazarBotonesProducto();
-    }
-    if (texto === '') {
-      selProd.innerHTML = prodOptionsHTML;
-    } else {
-      const temp = document.createElement('select');
-      temp.innerHTML = prodOptionsHTML;
-      const opciones = Array.from(temp.querySelectorAll('option'));
-      selProd.innerHTML = '';
-      opciones.forEach(op => {
-        if (!op.value) {
-          selProd.appendChild(op);
-          return;
-        }
-        const nombre = (op.textContent || '').toLowerCase();
-        const cb = (op.getAttribute('data-cb') || '').toLowerCase();
-        const coincide = soloCodigo ? cb === texto : (nombre.includes(texto) || cb.includes(texto));
-        if (coincide)
-          selProd.appendChild(op);
-      });
-    }
-    if (seleccionado)
-      selProd.value = seleccionado;
-    precioProductoSeleccionado();
-    guardarEstadoLocal();
+    programarBusquedaProductos(textoEntrada);
   }
 
   cargarEstadoLocal();
@@ -1043,7 +1055,9 @@ foreach ($clientes as $cliente_item) {
         e.preventDefault();
         limpiarScannerBuffer();
         const valor = inputProd.value.trim();
-        if (!enviarProductoPorCodigo(valor)) {
+        const datosProducto = datosEntradaProducto(valor);
+        const pareceCodigo = (modoBusquedaProducto && modoBusquedaProducto.value === 'codigo') || /^\d+$/.test(datosProducto.codigo.replace(/\s+/g, ''));
+        if (!(pareceCodigo && enviarProductoPorCodigo(valor))) {
           if (productoPanelSelect && productoPanelSelect.querySelectorAll('.sales-product-option').length === 1) {
             seleccionarProductoPorId(productoPanelSelect.querySelector('.sales-product-option').dataset.id || '');
             if (productoPanel)

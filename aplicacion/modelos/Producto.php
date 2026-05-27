@@ -1,18 +1,21 @@
 <?php
 require_once __DIR__ . "/../../configuraciones/base_datos.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
+require_once __DIR__ . "/Stock.php";
 
 class Producto {
-    public static function listar_todos(): array {
+    public static function listar_todos(string $orden_sql = "p.nombre ASC"): array {
+        Stock::asegurar_columnas_minmax();
         $lista = [];
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
                 $sql = "SELECT p.id, p.nombre, p.cod_barras, p.id_stock, p.factor_conversion, p.ganancia, p.precio_final, p.activo, p.creado_en,
-                               COALESCE(s.nombre, 'Sin stock asociado') AS stock_nombre, s.unidad AS stock_unidad, s.cantidad AS stock_cantidad, s.precio_costo AS stock_precio_costo
+                               COALESCE(s.nombre, 'Sin stock asociado') AS stock_nombre, s.unidad AS stock_unidad, s.tipo_stock AS stock_tipo_stock,
+                               s.cantidad AS stock_cantidad, s.stock_minimo, s.stock_maximo, s.precio_costo AS stock_precio_costo
                         FROM productos p
                         LEFT JOIN stock s ON s.id = p.id_stock
-                        ORDER BY p.id DESC";
+                        ORDER BY " . $orden_sql . ", p.id ASC";
                 $st = $pdo->prepare($sql);
                 $st->execute();
                 $rows = $st->fetchAll();
@@ -26,12 +29,14 @@ class Producto {
     }
 
     public static function listar_para_exportar(bool $solo_alta = true): array {
+        Stock::asegurar_columnas_minmax();
         $lista = [];
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
                 $sql = "SELECT p.id, p.nombre, p.cod_barras, COALESCE(s.nombre, '') AS stock_nombre,
-                               COALESCE(s.cantidad, 0) AS stock_cantidad, COALESCE(s.unidad, '') AS stock_unidad,
+                               COALESCE(s.cantidad, 0) AS stock_cantidad, COALESCE(s.unidad, '') AS stock_unidad, COALESCE(s.tipo_stock, '') AS stock_tipo_stock,
+                               COALESCE(s.stock_minimo, 0) AS stock_minimo, COALESCE(s.stock_maximo, 0) AS stock_maximo,
                                p.factor_conversion, p.ganancia, p.precio_final, p.activo
                         FROM productos p
                         LEFT JOIN stock s ON s.id = p.id_stock
@@ -54,12 +59,14 @@ class Producto {
     }
 
     public static function buscar_por_id(int $id): ?array {
+        Stock::asegurar_columnas_minmax();
         $fila = null;
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
                 $sql = "SELECT p.id, p.nombre, p.cod_barras, p.id_stock, p.factor_conversion, p.ganancia, p.precio_final, p.activo, p.creado_en,
-                               s.nombre AS stock_nombre, s.unidad AS stock_unidad, s.cantidad AS stock_cantidad, s.precio_costo AS stock_precio_costo
+                               s.nombre AS stock_nombre, s.unidad AS stock_unidad, s.tipo_stock AS stock_tipo_stock,
+                               s.cantidad AS stock_cantidad, s.stock_minimo, s.stock_maximo, s.precio_costo AS stock_precio_costo
                         FROM productos p
                         LEFT JOIN stock s ON s.id = p.id_stock
                         WHERE p.id = ? LIMIT 1";

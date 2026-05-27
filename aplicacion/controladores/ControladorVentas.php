@@ -3,8 +3,10 @@ require_once __DIR__ . "/../modelos/Venta.php";
 require_once __DIR__ . "/../modelos/FacturaFiscal.php";
 require_once __DIR__ . "/../modelos/Cliente.php";
 require_once __DIR__ . "/../modelos/Presupuesto.php";
+require_once __DIR__ . "/../modelos/Configuracion.php";
 require_once __DIR__ . "/../modelos/ConfiguracionSistema.php";
 require_once __DIR__ . "/../modelos/ListaPrecio.php";
+require_once __DIR__ . "/../modelos/UnidadMedida.php";
 require_once __DIR__ . "/../modelos/CuentaCorriente.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
@@ -48,6 +50,28 @@ class ControladorVentas {
     private function controlar_stock_ventas(): bool {
         $config = ConfiguracionSistema::obtener();
         return (string)($config["controlar_stock_ventas"] ?? "1") === "1";
+    }
+
+    private function asegurar_indices_rendimiento(): void {
+        static $verificado = false;
+        if ($verificado)
+            return;
+        $pdo = obtener_pdo();
+        if ($pdo === null)
+            return;
+        try {
+            $indices = [];
+            $st = $pdo->query("SHOW INDEX FROM productos");
+            foreach ($st->fetchAll() as $row)
+                $indices[(string)($row["Key_name"] ?? "")] = true;
+            if (empty($indices["idx_productos_activo_nombre"]))
+                $pdo->exec("CREATE INDEX idx_productos_activo_nombre ON productos (activo, nombre)");
+            if (empty($indices["idx_productos_activo_id"]))
+                $pdo->exec("CREATE INDEX idx_productos_activo_id ON productos (activo, id)");
+            $verificado = true;
+        } catch (Throwable $e) {
+            registrar_log("ControladorVentas::asegurar_indices_rendimiento", $e->getMessage());
+        }
     }
 
     private function obtener_form_venta(): array {
@@ -122,6 +146,64 @@ class ControladorVentas {
             } catch (Throwable $e) {
                 registrar_log("ControladorVentas::listar_productos_select", $e->getMessage());
             }
+        }
+        return $lista;
+    }
+
+    private function buscar_productos_venta(string $texto, string $modo, int $id_lista_precio, int $limite = 30): array {
+        $lista = [];
+        $pdo = obtener_pdo();
+        if ($pdo === null)
+            return $lista;
+        $texto = trim($texto);
+        if ($texto === "")
+            return $lista;
+        $limite = max(1, min(50, $limite));
+        try {
+            ListaPrecio::asegurar_tablas();
+            UnidadMedida::asegurar_tabla();
+            $solo_codigo = $modo === "codigo";
+            $digitos = preg_replace('/\D+/', '', $texto) ?? "";
+            $where = ["p.activo = 1"];
+            $params = [];
+            if ($solo_codigo && $digitos !== "") {
+                $where[] = "(p.cod_barras = ? OR TRIM(LEADING '0' FROM p.cod_barras) = TRIM(LEADING '0' FROM ?))";
+                $params[] = $digitos;
+                $params[] = $digitos;
+            } else {
+                $like = "%" . $texto . "%";
+                $where[] = "(p.nombre LIKE ? OR p.cod_barras LIKE ?)";
+                $params[] = $like;
+                $params[] = $like;
+            }
+            $sql = "SELECT p.id, p.nombre, p.cod_barras, p.precio_final, p.factor_conversion, p.id_stock, p.id_asociado,
+                           s.unidad AS stock_unidad, COALESCE(um.decimales, 3) AS unidad_decimales,
+                           GROUP_CONCAT(CONCAT(pp.id_lista, ':', pp.precio) SEPARATOR '|') AS precios_lista
+                    FROM productos p
+                    LEFT JOIN stock s ON s.id = p.id_stock
+                    LEFT JOIN unidades_medida um ON um.abreviatura = s.unidad
+                    LEFT JOIN producto_precios pp ON pp.id_producto = p.id
+                    WHERE " . implode(" AND ", $where) . "
+                    GROUP BY p.id, p.nombre, p.cod_barras, p.precio_final, p.factor_conversion, p.id_stock, p.id_asociado, s.unidad, um.decimales
+                    ORDER BY " . ($solo_codigo ? "CHAR_LENGTH(p.cod_barras) ASC, p.nombre ASC" : "p.nombre ASC") . "
+                    LIMIT " . $limite;
+            $st = $pdo->prepare($sql);
+            $st->execute($params);
+            foreach ($st->fetchAll() as $row) {
+                $precio_info = ListaPrecio::precio_producto_cargado((int)$row["id"], $id_lista_precio);
+                $lista[] = [
+                    "id" => (int)$row["id"],
+                    "nombre" => (string)$row["nombre"],
+                    "cod_barras" => (string)($row["cod_barras"] ?? ""),
+                    "precio" => $precio_info !== null ? (float)$precio_info["precio"] : 0.0,
+                    "precio_texto" => $precio_info !== null && (float)$precio_info["precio"] > 0 ? precio_para_mostrar($precio_info["precio"]) : "SIN PRECIO",
+                    "precios_lista" => (string)($row["precios_lista"] ?? ""),
+                    "stock_unidad" => (string)($row["stock_unidad"] ?? "u"),
+                    "unidad_decimales" => (int)($row["unidad_decimales"] ?? 3),
+                ];
+            }
+        } catch (Throwable $e) {
+            registrar_log("ControladorVentas::buscar_productos_venta", $e->getMessage());
         }
         return $lista;
     }
@@ -302,7 +384,14 @@ class ControladorVentas {
             $texto_buscar = trim((string)obtener_get("buscar", ""));
             $campo_buscar = trim((string)obtener_get("campo", "todos"));
             $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));
-            $ventas = Venta::listar_ventas_periodo($fecha_desde, $fecha_hasta);
+            $orden_ventas = orden_parametros([
+                "fecha" => "v.fecha",
+                "cliente" => "c.nombre",
+                "nombre" => "c.nombre",
+                "precio" => "v.total",
+                "total" => "v.total"
+            ], "fecha", "DESC");
+            $ventas = Venta::listar_ventas_periodo($fecha_desde, $fecha_hasta, $orden_ventas["sql"]);
             $campos_busqueda = [
                 "id" => "ID",
                 "fecha" => "Fecha",
@@ -443,8 +532,9 @@ class ControladorVentas {
 
     public function nueva(): void {
         if ($this->permiso()) {
+            $this->asegurar_indices_rendimiento();
             $clientes = $this->listar_clientes_select();
-            $productos = $this->listar_productos_select();
+            $productos = [];
             $listas_precios = ListaPrecio::listar(true);
             $carrito = $this->obtener_carrito();
             $total = $this->calcular_total_carrito($carrito);
@@ -454,6 +544,21 @@ class ControladorVentas {
             include __DIR__ . "/../vistas/ventas/nueva.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
         }
+    }
+
+    public function buscar_productos_json(): void {
+        if (!$this->permiso())
+            return;
+        $texto = trim((string)obtener_get("q", ""));
+        $modo = trim((string)obtener_get("modo", "general"));
+        $id_lista_precio = (int)obtener_get("id_lista_precio", ListaPrecio::id_predeterminada());
+        if ($id_lista_precio <= 0)
+            $id_lista_precio = ListaPrecio::id_predeterminada();
+        header("Content-Type: application/json; charset=utf-8");
+        echo json_encode([
+            "ok" => true,
+            "productos" => $this->buscar_productos_venta($texto, $modo, $id_lista_precio, 30),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
     public function aparte(): void {
@@ -574,7 +679,14 @@ class ControladorVentas {
                     $precio_manual_raw = trim((string)obtener_post("precio_unit", ""));
                     $precio_manual = parsear_numero_form($precio_manual_raw, 0);
                     $aplicar_lista_existente = (int)obtener_post("aplicar_lista_existente", 0) === 1;
-                    $codigo_balanza = $this->interpretar_codigo_balanza($datos_form["buscar_producto"], (int)$datos_form["id_lista_precio"]);
+                    $buscar_producto_codigo = $datos_form["buscar_producto"];
+                    if (preg_match('/^(\d+(?:[.,]\d+)?)\s*\*\s*(.+)$/', $buscar_producto_codigo, $m)) {
+                        $cantidad_codigo = parsear_numero_form((string)$m[1], 1);
+                        if ($cantidad_codigo > 0)
+                            $cantidad = $cantidad_codigo;
+                        $buscar_producto_codigo = trim((string)$m[2]);
+                    }
+                    $codigo_balanza = $this->interpretar_codigo_balanza($buscar_producto_codigo, (int)$datos_form["id_lista_precio"]);
                     if ($id_producto <= 0 && $codigo_balanza !== null) {
                         $id_producto = (int)$codigo_balanza["producto"]["id"];
                         $cantidad = (float)$codigo_balanza["cantidad"];
@@ -582,6 +694,11 @@ class ControladorVentas {
                             $precio_manual = (float)$codigo_balanza["precio_unit"];
                             $precio_manual_raw = (string)$codigo_balanza["precio_unit"];
                         }
+                    }
+                    if ($id_producto <= 0 && $buscar_producto_codigo !== "") {
+                        $producto_codigo = $this->buscar_producto_por_codigo_o_plu($buscar_producto_codigo);
+                        if ($producto_codigo !== null)
+                            $id_producto = (int)$producto_codigo["id"];
                     }
                     if ($id_producto <= 0 || $cantidad <= 0)
                         $error = "Producto o cantidad inválidos.";
@@ -1190,6 +1307,27 @@ class ControladorVentas {
         ];
     }
 
+    private function ticket_logo_html(array $empresa): string {
+        $html = "";
+        $logo_rel = trim((string)($empresa["logo_ticket"] ?? ""));
+        if ($logo_rel !== "") {
+            $logo_path = realpath(__DIR__ . "/../../" . $logo_rel);
+            $base_path = realpath(__DIR__ . "/../../");
+            if ($logo_path !== false && $base_path !== false && str_starts_with($logo_path, $base_path) && is_file($logo_path)) {
+                $formato = $this->formato_impresion_ticket();
+                $modo_termico = (string)($empresa["ticket_logo_termico"] ?? "1") === "1";
+                $ruta_logo = $modo_termico ? procesar_logo_ticket_termico_hd($logo_path, $formato === "58" ? 384 : 576, true) : ruta_relativa_proyecto($logo_path);
+                $archivo_logo = resolver_ruta_proyecto($ruta_logo);
+                $ext = strtolower(pathinfo($archivo_logo, PATHINFO_EXTENSION));
+                $mime = ["jpg" => "image/jpeg", "jpeg" => "image/jpeg", "png" => "image/png", "gif" => "image/gif", "webp" => "image/webp"][$ext] ?? "image/png";
+                $bytes_logo = is_file($archivo_logo) ? @file_get_contents($archivo_logo) : false;
+                if (is_string($bytes_logo) && $bytes_logo !== "")
+                    $html = "<div class='center logo-wrap'><img class='logo' src='data:$mime;base64," . base64_encode($bytes_logo) . "'></div>";
+            }
+        }
+        return $html;
+    }
+
     private function html_comprobante(array $venta, array $items, bool $para_pdf = true, bool $auto_print = false): string {
         $id = (int)$venta["id"];
         $fecha = htmlspecialchars((string)$venta["fecha"]);
@@ -1207,12 +1345,18 @@ class ControladorVentas {
         $empresa = $config["empresa"] ?? [];
         $comp_def = $config["comprobante_defecto"] ?? [];
         
+        $nombre_comercio = htmlspecialchars((string)($empresa["nombre_comercio"] ?? "Comercio"));
         $razon = htmlspecialchars((string)($empresa["razon_social"] ?? "Comercio"));
         $cuit = htmlspecialchars((string)($empresa["cuit"] ?? ""));
         $domicilio = htmlspecialchars((string)($empresa["domicilio"] ?? ""));
         $telefonos = htmlspecialchars((string)($empresa["telefonos"] ?? ""));
         $email = htmlspecialchars((string)($empresa["email"] ?? ""));
         $pie_ticket = nl2br(htmlspecialchars((string)($empresa["texto_pie_ticket"] ?? "")));
+        $logo_html = $this->ticket_logo_html($empresa);
+        $ticket_imagen_completa = (string)($empresa["ticket_imagen_completa"] ?? "0") === "1";
+        $ticket_fuente_raw = in_array((string)($empresa["ticket_fuente"] ?? "Arial"), ["Arial", "Verdana", "Courier New", "Tahoma"], true) ? (string)$empresa["ticket_fuente"] : "Arial";
+        $ticket_fuente = $ticket_fuente_raw === "Courier New" ? "'Courier New'" : htmlspecialchars($ticket_fuente_raw);
+        $ticket_tamano = max(10, min(18, (int)($empresa["ticket_tamano_fuente"] ?? 12)));
         
         $pv = (int)($venta["punto_venta"] ?? ($empresa["punto_venta"] ?? 1));
         $numero = (int)($venta["numero_comprobante"] ?? 0);
@@ -1248,16 +1392,29 @@ class ControladorVentas {
         $auto_print_html = (!$para_pdf && $auto_print) ? "<script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 250); });</script>" : "";
         
         $empresa_extra_html = "";
-        if ($cuit && !$es_factura_x) $empresa_extra_html .= "<div class='center small'>CUIT: $cuit</div>";
-        if ($domicilio) $empresa_extra_html .= "<div class='center small'>$domicilio</div>";
-        if ($telefonos) $empresa_extra_html .= "<div class='center small'>Tel: $telefonos</div>";
-        if ($email) $empresa_extra_html .= "<div class='center small'>$email</div>";
+        if (!$ticket_imagen_completa) {
+            if ($razon !== "" && $razon !== $nombre_comercio) $empresa_extra_html .= "<div class='center small'>$razon</div>";
+            if ($cuit && !$es_factura_x) $empresa_extra_html .= "<div class='center small'>CUIT: $cuit</div>";
+            if ($domicilio) $empresa_extra_html .= "<div class='center small'>$domicilio</div>";
+            if ($telefonos) $empresa_extra_html .= "<div class='center small'>Tel: $telefonos</div>";
+            if ($email) $empresa_extra_html .= "<div class='center small'>$email</div>";
+        }
+        $marca_html = $ticket_imagen_completa ? $logo_html : $logo_html . "<div class='center brand'>" . strtoupper($nombre_comercio) . "</div>" . $empresa_extra_html;
         
         $ticket_status = $es_fiscal && $cae === "" ? "<div class='center warning'>CAE PENDIENTE</div>" : "";
         if (!$es_fiscal) $ticket_status = "<div class='center warning'>DOCUMENTO INTERNO</div>";
         if ($es_factura_x) $ticket_status = "";
-        $numero_html = $es_factura_x ? "" : "<div class='row'><span>Nro.</span><strong>$numero_txt</strong></div>";
-        $cliente_doc_html = ($es_factura_x || $cliente_doc === "") ? "" : "<div class='row'><span>Doc.</span><strong>$cliente_doc</strong></div>";
+        $numero_html = $es_factura_x || $ticket_imagen_completa ? "" : "<div class='row'><span>Nro.</span><strong>$numero_txt</strong></div>";
+        $cliente_doc_html = ($es_factura_x || $cliente_doc === "" || $ticket_imagen_completa) ? "" : "<div class='row'><span>Doc.</span><strong>$cliente_doc</strong></div>";
+        $cabecera_documento_html = $ticket_imagen_completa ? "" : "
+    <div class='line'></div>
+    <div class='center title'>$titulo</div>
+    <div class='line'></div>
+    $numero_html
+    <div class='row'><span>Fecha</span><strong>$fecha</strong></div>
+    <div class='row'><span>Cliente</span><strong>$cliente</strong></div>
+    $cliente_doc_html
+    <div class='row'><span>Vendedor</span><strong>$usuario</strong></div>";
         
         return "<!doctype html>
 <html lang='es'>
@@ -1267,9 +1424,11 @@ class ControladorVentas {
   <style>
     @page { size: " . $medidas["page_size"] . "; margin: " . $medidas["page_margin"] . "; }
     * { box-sizing: border-box; }
-    body { margin: 0; background: #fff; font-family: Consolas, 'Courier New', monospace; color: #000; }
+    body { margin: 0; background: #fff; font-family: $ticket_fuente, Arial, sans-serif; font-size: {$ticket_tamano}px; color: #000; }
     .ticket { width: " . $medidas["ticket_width"] . "; max-width: 100%; padding: " . $medidas["ticket_padding"] . "; margin: 0 auto; }
     .center { text-align: center; }
+    .logo-wrap { margin: 0 0 4px; padding: 0; background: #fff; line-height: 0; }
+    .logo { display: block; width: auto; max-width: 100%; max-height: 90px; object-fit: contain; margin: 0 auto; background: #fff; }
     .brand { font-weight: 800; font-size: 13px; line-height: 1.05; margin-bottom: 2px; }
     .title { font-weight: 800; font-size: 12px; margin: 5px 0; }
     .small { font-size: 9px; line-height: 1.2; }
@@ -1296,18 +1455,10 @@ class ControladorVentas {
 <body>
   $acciones_html
   <div class='ticket'>
-    <div class='center brand'>" . strtoupper($razon) . "</div>
-    $empresa_extra_html
+    $marca_html
+    $cabecera_documento_html
     <div class='line'></div>
-    <div class='center title'>$titulo</div>
-    <div class='line'></div>
-    $numero_html
-    <div class='row'><span>Fecha</span><strong>$fecha</strong></div>
-    <div class='row'><span>Cliente</span><strong>$cliente</strong></div>
-    $cliente_doc_html
-    <div class='row'><span>Vendedor</span><strong>$usuario</strong></div>
-    <div class='line'></div>
-    <div class='block-title'>Detalle</div>
+    " . ($ticket_imagen_completa ? "" : "<div class='block-title'>Detalle</div>") . "
     $filas_html
     <div class='line'></div>
     <div class='total-row'><span>Total</span><strong>$total</strong></div>
@@ -1327,24 +1478,22 @@ class ControladorVentas {
         $total = htmlspecialchars(moneda_para_mostrar($presupuesto["total"] ?? 0));
         $config = ConfiguracionSistema::obtener_configuracion_fiscal();
         $empresa = $config["empresa"] ?? [];
+        $nombre_comercio = htmlspecialchars((string)($empresa["nombre_comercio"] ?? ""));
         $razon = htmlspecialchars((string)($empresa["razon_social"] ?? ""));
         $cuit = htmlspecialchars((string)($empresa["cuit"] ?? ""));
         $domicilio = htmlspecialchars((string)($empresa["domicilio"] ?? ""));
         $telefonos = htmlspecialchars((string)($empresa["telefonos"] ?? ""));
         $pie_ticket = nl2br(htmlspecialchars((string)($empresa["texto_pie_ticket"] ?? "")));
-        $logo_html = "";
-        $logo_rel = trim((string)($empresa["logo_ticket"] ?? ""));
-        if ($logo_rel !== "") {
-            $logo_path = realpath(__DIR__ . "/../../" . $logo_rel);
-            $base_path = realpath(__DIR__ . "/../../");
-            if ($logo_path !== false && $base_path !== false && str_starts_with($logo_path, $base_path) && is_file($logo_path)) {
-                $ext = strtolower(pathinfo($logo_path, PATHINFO_EXTENSION));
-                $mime = ["jpg" => "image/jpeg", "jpeg" => "image/jpeg", "png" => "image/png", "gif" => "image/gif"][$ext] ?? "";
-                $bytes_logo = @file_get_contents($logo_path);
-                if ($mime !== "" && is_string($bytes_logo) && $bytes_logo !== "")
-                    $logo_html = "<div class='center logo-wrap'><img class='logo' src='data:$mime;base64," . base64_encode($bytes_logo) . "'></div>";
-            }
-        }
+        $logo_html = $this->ticket_logo_html($empresa);
+        $ticket_imagen_completa = (string)($empresa["ticket_imagen_completa"] ?? "0") === "1";
+        $ticket_fuente_raw = in_array((string)($empresa["ticket_fuente"] ?? "Arial"), ["Arial", "Verdana", "Courier New", "Tahoma"], true) ? (string)$empresa["ticket_fuente"] : "Arial";
+        $ticket_fuente = $ticket_fuente_raw === "Courier New" ? "'Courier New'" : htmlspecialchars($ticket_fuente_raw);
+        $ticket_tamano = max(10, min(18, (int)($empresa["ticket_tamano_fuente"] ?? 12)));
+        $marca_presupuesto = $ticket_imagen_completa
+            ? $logo_html
+            : $logo_html . "<div class='center brand'>$nombre_comercio</div>" . ($razon !== "" && $razon !== $nombre_comercio ? "<div class='center'>$razon</div>" : "") . "<div class='center'>CUIT $cuit</div>"
+                . ($domicilio !== "" ? "<div class='center'>$domicilio</div>" : "")
+                . ($telefonos !== "" ? "<div class='center'>Tel: $telefonos</div>" : "");
         $filas = "";
         foreach ($items as $it) {
             $p = htmlspecialchars((string)$it["producto_nombre"]);
@@ -1360,13 +1509,13 @@ class ControladorVentas {
         return "<!doctype html>
             <html lang='es'><head><meta charset='utf-8'><style>
             @page { size: " . $medidas["page_size"] . "; margin: " . $medidas["page_margin"] . "; }
-            body { font-family: DejaVu Sans, sans-serif; font-size: 9px; color: #111; }
+            body { font-family: $ticket_fuente, DejaVu Sans, sans-serif; font-size: {$ticket_tamano}px; color: #111; }
             .actions { width: " . $medidas["actions_width"] . "; max-width: 100%; padding: 6px; display: flex; gap: 6px; margin: 0 auto 6px; }
             .ticket { width: " . $medidas["ticket_width"] . "; max-width: 100%; padding: " . $medidas["ticket_padding"] . "; margin: 0 auto; }
             button { border: 0; border-radius: 6px; padding: 6px 8px; background: #0e7490; color: white; font-weight: 600; cursor: pointer; font-size: 9px; }
             .center { text-align: center; }
-            .logo-wrap { margin-bottom: 3px; }
-            .logo { max-width: 90px; max-height: 45px; object-fit: contain; }
+            .logo-wrap { margin: 0 0 4px; padding: 0; background: #fff; line-height: 0; }
+            .logo { display: block; width: auto; max-width: 100%; max-height: 90px; object-fit: contain; margin: 0 auto; background: #fff; }
             .brand { font-size: 12px; font-weight: bold; }
             .marca { width: 34px; height: 34px; border: 2px solid #111; margin: 4px auto; text-align: center; font-size: 25px; font-weight: bold; line-height: 34px; }
             .sep { border-top: 1px dashed #111; margin: 5px 0; }
@@ -1380,11 +1529,7 @@ class ControladorVentas {
             </style></head><body>
             $acciones_html
             <div class='ticket'>
-            $logo_html
-            <div class='center brand'>$razon</div>
-            <div class='center'>CUIT $cuit</div>
-            " . ($domicilio !== "" ? "<div class='center'>$domicilio</div>" : "") . "
-            " . ($telefonos !== "" ? "<div class='center'>Tel: $telefonos</div>" : "") . "
+            $marca_presupuesto
             <div class='marca'>X</div>
             <div class='legal'>DOCUMENTO NO VALIDO COMO FACTURA</div>
             <div class='center'><b>PRESUPUESTO #$id</b></div>

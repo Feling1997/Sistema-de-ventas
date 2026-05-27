@@ -6,18 +6,31 @@ from modelos import convertir_precio, estado_valido, fecha_hoy, limpiar_texto
 
 
 class ReparacionRepositorio:
-    def listar(self):
+    ORDENES = {
+        "codigo": "codigo",
+        "cliente": "cliente_nombre",
+        "nombre": "cliente_nombre",
+        "estado": "estado",
+        "precio": "precio",
+        "fecha": "fecha_ingreso",
+        "ingreso": "fecha_ingreso",
+        "entrega": "fecha_entrega",
+    }
+
+    def listar(self, orden="fecha", direccion="DESC"):
         filas = []
+        campo_orden = self.ORDENES.get(str(orden).lower(), "fecha_ingreso")
+        direccion_sql = "DESC" if str(direccion).upper() == "DESC" else "ASC"
         conexion = conectar()
         try:
             cursor = conexion.execute(
-                """
+                f"""
                 SELECT id, codigo, cliente_nombre, cliente_telefono, marca, modelo,
                        imei, falla, diagnostico, garantia, estado, precio,
                        fecha_ingreso, fecha_entrega, observaciones, activo
                 FROM reparaciones
                 WHERE activo = 1
-                ORDER BY id DESC
+                ORDER BY {campo_orden} {direccion_sql}, id DESC
                 """
             )
             filas = [dict(fila) for fila in cursor.fetchall()]

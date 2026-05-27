@@ -6,14 +6,14 @@ require_once __DIR__ . "/ListaPrecio.php";
 
 class Cliente {
 
-    public static function listar_todos(): array {
+    public static function listar_todos(string $orden_sql = "c.nombre ASC"): array {
         $lista = [];
         $pdo = obtener_pdo();
 
         if ($pdo !== null) {
             try {
                 self::asegurar_columnas_fiscales($pdo);
-                $sql = "SELECT c.id, c.nombre, c.dni, c.tipo_documento, c.condicion_iva, c.email, c.id_lista_precio, lp.nombre AS lista_precio_nombre, c.telefono, c.direccion, c.creado_en FROM clientes c LEFT JOIN listas_precios lp ON lp.id = c.id_lista_precio ORDER BY c.id DESC";
+                $sql = "SELECT c.id, c.nombre, c.dni, c.tipo_documento, c.condicion_iva, c.email, c.id_lista_precio, lp.nombre AS lista_precio_nombre, c.telefono, c.direccion, c.creado_en FROM clientes c LEFT JOIN listas_precios lp ON lp.id = c.id_lista_precio ORDER BY " . $orden_sql . ", c.id ASC";
                 $st = $pdo->prepare($sql);
                 $st->execute();
                 $rows = $st->fetchAll();

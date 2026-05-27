@@ -19,7 +19,13 @@ class ControladorListasPrecios {
 
     public function index(): void {
         if ($this->permiso()) {
-            $listas = ListaPrecio::listar(false);
+            $orden_listas = orden_parametros([
+                "nombre" => "nombre",
+                "descripcion" => "nombre",
+                "estado" => "activo",
+                "fecha" => "creado_en"
+            ], "nombre", "ASC");
+            $listas = ListaPrecio::listar(false, $orden_listas["sql"]);
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/listas_precios/index.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -41,8 +47,13 @@ class ControladorListasPrecios {
             }
             if ($id > 0 && ListaPrecio::es_lista_base_id($id)) {
                 $nombre_base = strtolower(trim($nombre));
+                if ($nombre_base !== "costo") {
+                    flash_error("No se puede cambiar el nombre base de Costo.");
+                    redirigir("index.php?c=listas_precios&a=index");
+                    return;
+                }
                 if (!in_array($nombre_base, ["costo", "publico", "público"], true)) {
-                    flash_error("No se puede cambiar el nombre base de Costo o Publico.");
+                    flash_error("No se puede cambiar el nombre base de Costo.");
                     redirigir("index.php?c=listas_precios&a=index");
                 }
                 $activo = 1;
@@ -57,8 +68,9 @@ class ControladorListasPrecios {
         if ($this->permiso()) {
             $id = (int)obtener_get("id", 0);
             if (ListaPrecio::es_lista_base_id($id)) {
-                flash_error("No se pueden eliminar las listas Costo y Publico.");
+                flash_error("No se puede eliminar la lista Costo.");
                 redirigir("index.php?c=listas_precios&a=index");
+                return;
             }
             $ok = ListaPrecio::eliminar($id);
             $ok ? flash_ok("Lista eliminada.") : flash_error("No se pudo eliminar la lista.");

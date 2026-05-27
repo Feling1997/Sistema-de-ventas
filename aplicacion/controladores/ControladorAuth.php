@@ -7,7 +7,7 @@ require_once __DIR__ . "/../../configuraciones/csrf.php";
 class ControladorAuth{
     public function login():void{
         iniciar_sesion();
-        if (auth_sin_login_habilitado()) {
+        if (auth_admin_local_habilitado()) {
             $_SESSION["usuario_logueado"]=[
                 "id"=>0,
                 "usuario"=>"Sin login",

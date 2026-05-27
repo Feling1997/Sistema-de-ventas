@@ -3,7 +3,11 @@ require_once __DIR__ . "/../../configuraciones/base_datos.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 
 class CuentaCorriente {
+    private static bool $tablas_aseguradas = false;
+
     public static function asegurar_tablas(): void {
+        if (self::$tablas_aseguradas)
+            return;
         $pdo = obtener_pdo();
         if ($pdo === null)
             return;
@@ -55,8 +59,22 @@ class CuentaCorriente {
                 leido_hasta DATE NOT NULL,
                 actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            self::asegurar_indice($pdo, "cuentas_corrientes", "idx_cc_saldo", "ALTER TABLE cuentas_corrientes ADD INDEX idx_cc_saldo (saldo)");
+            self::asegurar_indice($pdo, "cuentas_corrientes_cuotas", "idx_cc_cuota_estado_vto", "ALTER TABLE cuentas_corrientes_cuotas ADD INDEX idx_cc_cuota_estado_vto (estado, vencimiento)");
+            self::$tablas_aseguradas = true;
         } catch (Throwable $e) {
             registrar_log("CuentaCorriente::asegurar_tablas", $e->getMessage());
+        }
+    }
+
+    private static function asegurar_indice(PDO $pdo, string $tabla, string $indice, string $sql): void {
+        try {
+            $st = $pdo->prepare("SHOW INDEX FROM `$tabla` WHERE Key_name = ?");
+            $st->execute([$indice]);
+            if (!$st->fetch())
+                $pdo->exec($sql);
+        } catch (Throwable $e) {
+            registrar_log("CuentaCorriente::asegurar_indice", $tabla . "." . $indice . " " . $e->getMessage());
         }
     }
 
@@ -75,7 +93,7 @@ class CuentaCorriente {
             $pdo->exec("ALTER TABLE cuentas_corrientes_recibos MODIFY id_cuenta INT NULL");
     }
 
-    public static function listar_resumen(bool $solo_deudores = true): array {
+    public static function listar_resumen(bool $solo_deudores = true, string $orden_sql = "c.nombre ASC"): array {
         self::asegurar_tablas();
         $pdo = obtener_pdo();
         if ($pdo === null)
@@ -89,7 +107,7 @@ class CuentaCorriente {
                     LEFT JOIN cuentas_corrientes_cuotas q ON q.id_cuenta = cc.id
                     " . ($solo_deudores ? "WHERE cc.saldo > 0.00001" : "") . "
                     GROUP BY cc.id
-                    ORDER BY cc.id DESC";
+                    ORDER BY " . $orden_sql . ", cc.id ASC";
             $st = $pdo->prepare($sql);
             $st->execute();
             return $st->fetchAll();
@@ -120,7 +138,7 @@ class CuentaCorriente {
         }
     }
 
-    public static function cuotas_pendientes_detalle(string $buscar = "", string $estado = "todos", string $orden = "vencimiento"): array {
+    public static function cuotas_pendientes_detalle(string $buscar = "", string $estado = "todos", string $orden = "vencimiento", string $direccion = "ASC"): array {
         self::asegurar_tablas();
         $pdo = obtener_pdo();
         if ($pdo === null)
@@ -141,13 +159,20 @@ class CuentaCorriente {
             else if ($estado === "proximos")
                 $where[] = "q.vencimiento >= CURDATE()";
 
-            $order_sql = "q.vencimiento ASC, c.nombre ASC, q.numero ASC";
-            if ($orden === "cliente")
-                $order_sql = "c.nombre ASC, q.vencimiento ASC";
-            else if ($orden === "saldo")
-                $order_sql = "pendiente DESC, q.vencimiento ASC";
-            else if ($orden === "estado")
-                $order_sql = "vencida DESC, q.vencimiento ASC";
+            $direccion = strtoupper($direccion) === "DESC" ? "DESC" : "ASC";
+            $ordenes = [
+                "vencimiento" => "q.vencimiento",
+                "fecha" => "q.vencimiento",
+                "cliente" => "c.nombre",
+                "monto" => "q.monto",
+                "saldo" => "pendiente",
+                "stock" => "q.numero",
+                "estado" => "vencida",
+                "precio" => "pendiente"
+            ];
+            if (!array_key_exists($orden, $ordenes))
+                $orden = "vencimiento";
+            $order_sql = $ordenes[$orden] . " " . $direccion . ", c.nombre ASC, q.numero ASC";
 
             $sql = "SELECT q.id, q.id_cuenta, q.numero, q.vencimiento, q.monto, q.pagado,
                            GREATEST(0, q.monto - q.pagado) AS pendiente,
@@ -197,7 +222,7 @@ class CuentaCorriente {
         }
     }
 
-    public static function listar_recibos(int $limite = 50): array {
+    public static function listar_recibos(int $limite = 50, string $orden_sql = "r.fecha DESC"): array {
         self::asegurar_tablas();
         $pdo = obtener_pdo();
         if ($pdo === null)
@@ -208,7 +233,7 @@ class CuentaCorriente {
                     FROM cuentas_corrientes_recibos r
                     LEFT JOIN cuentas_corrientes cc ON cc.id = r.id_cuenta
                     INNER JOIN clientes c ON c.id = COALESCE(r.id_cliente, cc.id_cliente)
-                    ORDER BY r.fecha DESC, r.id DESC
+                    ORDER BY " . $orden_sql . ", r.id DESC
                     LIMIT " . $limite;
             $st = $pdo->query($sql);
             return $st ? ($st->fetchAll() ?: []) : [];

@@ -144,7 +144,10 @@ class ReparacionesHandler(BaseHTTPRequestHandler):
         elif ruta == "/api/config":
             self._enviar_json({"ok": True, "datos": cargar_config()})
         elif ruta == "/api/reparaciones":
-            self._enviar_json({"ok": True, "datos": self.repositorio.listar()})
+            query = parse_qs(urlparse(self.path).query)
+            orden = (query.get("orden", ["fecha"])[0] or "fecha").lower()
+            direccion = (query.get("direccion", ["desc"])[0] or "desc").upper()
+            self._enviar_json({"ok": True, "datos": self.repositorio.listar(orden, direccion)})
         elif ruta == "/api/impresoras":
             self._enviar_json({"ok": True, "impresoras": listar_impresoras()})
         elif ruta.startswith("/api/reparaciones/"):
@@ -326,6 +329,8 @@ def pagina_principal():
     table {{ width:100%; border-collapse:collapse; background:white; }}
     th,td {{ padding:10px; border-bottom:1px solid #e5e7eb; text-align:left; font-size:13px; }}
     th {{ background:#e8edf3; font-weight:800; white-space:nowrap; }}
+    th[data-orden] {{ cursor:pointer; }}
+    th[data-orden] span {{ color:var(--cyan); margin-left:4px; }}
     tr:hover {{ background:#f8fafc; cursor:pointer; }}
     tr.sel {{ outline:2px solid #38bdf8; background:#ecfeff; }}
     .layout-consulta {{ display:grid; grid-template-columns:minmax(0,1fr) 330px; gap:12px; }}
@@ -423,7 +428,7 @@ def pagina_principal():
           <button class="btn ok" id="ticket">Ticket</button>
         </div>
         <div class="layout-consulta">
-          <div class="table-wrap"><table><thead><tr><th>Codigo</th><th>Cliente</th><th>Telefono</th><th>Equipo</th><th>Estado</th><th>Precio</th><th>Ingreso</th><th>Entrega</th></tr></thead><tbody id="tabla"></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th data-orden="codigo">Codigo <span></span></th><th data-orden="cliente">Cliente <span></span></th><th>Telefono</th><th>Equipo</th><th data-orden="estado">Estado <span></span></th><th data-orden="precio">Precio <span></span></th><th data-orden="fecha">Ingreso <span></span></th><th data-orden="entrega">Entrega <span></span></th></tr></thead><tbody id="tabla"></tbody></table></div>
           <aside class="panel detail" id="detalle">Seleccione una reparacion para ver el detalle.</aside>
         </div>
       </div>
@@ -474,9 +479,12 @@ def pagina_principal():
 const estados = {json.dumps(ESTADOS, ensure_ascii=False)};
 let reparaciones = [];
 let seleccion = null;
+let ordenActual = sessionStorage.getItem('orden:reparaciones:orden') || 'fecha';
+let direccionActual = sessionStorage.getItem('orden:reparaciones:direccion') || 'desc';
 
 function hoy() {{ return new Date().toISOString().slice(0, 10); }}
 function qs(id) {{ return document.getElementById(id); }}
+function qsa(selector) {{ return Array.from(document.querySelectorAll(selector)); }}
 
 function vista(nombre, estado='TODOS') {{
   document.querySelectorAll('.vista').forEach(v => v.classList.remove('activa'));
@@ -614,11 +622,35 @@ async function eliminar() {{
 }}
 
 async function cargar() {{
-  const resp = await fetch('/api/reparaciones');
+  const resp = await fetch(`/api/reparaciones?orden=${{encodeURIComponent(ordenActual)}}&direccion=${{encodeURIComponent(direccionActual)}}`);
   const data = await resp.json();
   reparaciones = data.datos || [];
   metricas();
   render();
+  actualizarOrdenVisual();
+}}
+
+function actualizarOrdenVisual() {{
+  qsa('th[data-orden]').forEach(th => {{
+    const span = th.querySelector('span');
+    if (!span) return;
+    span.textContent = th.dataset.orden === ordenActual ? (direccionActual === 'asc' ? '↑' : '↓') : '↕';
+  }});
+}}
+
+function cambiarOrden(campo) {{
+  if (ordenActual !== campo) {{
+    ordenActual = campo;
+    direccionActual = 'asc';
+  }} else if (direccionActual === 'asc') {{
+    direccionActual = 'desc';
+  }} else {{
+    ordenActual = 'fecha';
+    direccionActual = 'desc';
+  }}
+  sessionStorage.setItem('orden:reparaciones:orden', ordenActual);
+  sessionStorage.setItem('orden:reparaciones:direccion', direccionActual);
+  cargar();
 }}
 
 function metricas() {{
@@ -697,6 +729,7 @@ qs('limpiarConfig').addEventListener('click', limpiarConfig);
 qs('eliminar').addEventListener('click', eliminar);
 qs('buscar').addEventListener('input', render);
 qs('filtro').addEventListener('change', render);
+qsa('th[data-orden]').forEach(th => th.addEventListener('click', () => cambiarOrden(th.dataset.orden)));
 qs('limpiarFiltros').addEventListener('click', () => {{ qs('buscar').value=''; qs('filtro').value='TODOS'; render(); }});
 qs('editar').addEventListener('click', editarSeleccionado);
 qs('ticket').addEventListener('click', () => {{ if (seleccion) window.open(`/ticket/${{seleccion.id}}`, '_blank'); else alert('Seleccione una reparacion.'); }});

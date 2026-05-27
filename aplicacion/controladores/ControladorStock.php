@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . "/../modelos/Stock.php";
 require_once __DIR__ . "/../modelos/Producto.php";
+require_once __DIR__ . "/../modelos/UnidadMedida.php";
 require_once __DIR__ . "/../modelos/ListaPrecio.php";
 require_once __DIR__ . "/../../configuraciones/base_datos.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
@@ -8,6 +9,35 @@ require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
 
 class ControladorStock {
+    private function datos_nueva_unidad_post(): array {
+        $simple = trim((string)obtener_post("nueva_unidad_simple", ""));
+        if ($simple !== "") {
+            $simple = ucfirst($simple);
+            return [
+                "nombre" => $simple,
+                "tipo" => "cantidad",
+                "decimales" => 0,
+            ];
+        }
+        return [
+            "nombre" => trim((string)obtener_post("nueva_unidad_nombre", "")),
+            "tipo" => trim((string)obtener_post("nueva_unidad_tipo", "cantidad")),
+            "decimales" => (int)obtener_post("nueva_unidad_decimales", 0),
+        ];
+    }
+
+    private function resolver_unidad_form(string $unidad): string {
+        $unidad = trim($unidad);
+        if ($unidad === "__otra_unidad__") {
+            $simple = trim((string)obtener_post("nueva_unidad_simple", ""));
+            if ($simple !== "")
+                $unidad = strtolower($simple);
+            else
+                $unidad = "";
+        }
+        return $unidad;
+    }
+
     private function permiso(): bool {
         $ok = false;
         if (!require_login()) {
@@ -25,7 +55,15 @@ class ControladorStock {
 
     public function index(): void {
         if ($this->permiso()) {
-            $items = Stock::listar_todos();
+            $orden_stock = orden_parametros([
+                "nombre" => "s.nombre",
+                "descripcion" => "s.nombre",
+                "stock" => "s.cantidad",
+                "precio" => "s.precio_costo",
+                "estado" => "s.activo",
+                "fecha" => "s.creado_en"
+            ], "nombre", "ASC");
+            $items = Stock::listar_todos($orden_stock["sql"]);
             $texto_buscar = trim((string)obtener_get("buscar", ""));
             $campo_buscar = trim((string)obtener_get("campo", "todos"));
             $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));
@@ -33,12 +71,20 @@ class ControladorStock {
                 "id" => "ID",
                 "nombre" => "Nombre",
                 "unidad" => "Unidad",
+                "tipo_stock" => "Tipo stock",
                 "cantidad" => "Cantidad",
                 "stock_minimo" => "Stock minimo",
                 "stock_maximo" => "Stock maximo",
                 "precio_costo" => "Precio costo"
             ];
             $items = filtrar_registros_busqueda($items, $texto_buscar, $campo_buscar, $campos_busqueda, $metodo_buscar);
+            $id_usuario = (int)($_SESSION["usuario_logueado"]["id"] ?? 0);
+            $filtro_alertas_stock = trim((string)obtener_get("filtro_alertas_stock", "bajo"));
+            if (!in_array($filtro_alertas_stock, ["bajo", "criticos"], true))
+                $filtro_alertas_stock = "bajo";
+            $mostrar_alertas_leidas = (int)obtener_get("mostrar_alertas_leidas", 0) === 1;
+            $alertas_stock_bajo = Stock::alertas_stock_bajo($id_usuario, $mostrar_alertas_leidas, $filtro_alertas_stock);
+            $resumen_alertas_stock = Stock::resumen_alertas_stock_bajo($id_usuario);
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/stock/index.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -48,10 +94,11 @@ class ControladorStock {
     public function nuevo(): void {
         if ($this->permiso()) {
             $modo = "crear";
-            $s = ["id" => 0, "nombre" => "", "unidad" => "u", "cantidad" => 0, "stock_minimo" => 0, "stock_maximo" => 0, "precio_costo" => 0, "activo" => 1];
+            $s = ["id" => 0, "nombre" => "", "unidad" => "u", "tipo_stock" => "general", "cantidad" => 0, "stock_minimo" => 0, "stock_maximo" => 0, "precio_costo" => 0, "activo" => 1];
             $datos_form = obtener_form_data("stock_form");
             if ($datos_form !== [])
                 $s = array_merge($s, $datos_form);
+            $unidades_medida = UnidadMedida::listar(true);
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/stock/formulario.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -67,17 +114,19 @@ class ControladorStock {
                     $error = "Token inválido. Recargá la página.";
                 else {
                     $nombre = trim((string)obtener_post("nombre", ""));
-                    $unidad = trim((string)obtener_post("unidad", "u"));
-                    $cantidad = (float)obtener_post("cantidad", 0);
-                    $stock_minimo = (float)obtener_post("stock_minimo", 0);
-                    $stock_maximo = (float)obtener_post("stock_maximo", 0);
-                    $precio_costo = (float)obtener_post("precio_costo", 0);
+                    $unidad = $this->resolver_unidad_form((string)obtener_post("unidad", "u"));
+                    $tipo_stock = trim((string)obtener_post("tipo_stock", "general"));
+                    $cantidad = parsear_numero_form(obtener_post("cantidad", 0), 0);
+                    $stock_minimo = parsear_numero_form(obtener_post("stock_minimo", 0), 0);
+                    $stock_maximo = parsear_numero_form(obtener_post("stock_maximo", 0), 0);
+                    $precio_costo = parsear_numero_form(obtener_post("precio_costo", 0), 0);
                     $activo = (int)obtener_post("activo", 1);
                     if (texto_invalido($nombre))
                         $error = "Nombre inválido (vacío o placeholder).";
                     else {
                         if (texto_invalido($unidad))
                             $unidad = "u";
+                        $unidad = UnidadMedida::asegurar_desde_form($unidad, $this->datos_nueva_unidad_post());
                         if ($cantidad < 0)
                             $cantidad = 0;
                         if ($precio_costo < 0)
@@ -86,7 +135,7 @@ class ControladorStock {
                             $stock_minimo = 0;
                         if ($stock_maximo < 0)
                             $stock_maximo = 0;
-                        $ok = Stock::crear($nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo);
+                        $ok = Stock::crear_con_tipo($nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock);
                         if ($ok) {
                             flash_ok("Stock creado correctamente.");
                             redirigir("index.php?c=stock&a=index");
@@ -102,6 +151,7 @@ class ControladorStock {
                     "id" => 0,
                     "nombre" => $nombre ?? "",
                     "unidad" => $unidad ?? "u",
+                    "tipo_stock" => $tipo_stock ?? "general",
                     "cantidad" => $cantidad ?? 0,
                     "stock_minimo" => $stock_minimo ?? 0,
                     "stock_maximo" => $stock_maximo ?? 0,
@@ -125,6 +175,7 @@ class ControladorStock {
                 $datos_form = obtener_form_data("stock_form");
                 if ($datos_form !== [])
                     $s = array_merge($s, $datos_form);
+                $unidades_medida = UnidadMedida::listar(true);
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/stock/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -146,17 +197,19 @@ class ControladorStock {
                         $error = "Stock no encontrado.";
                     else {
                         $nombre = trim((string)obtener_post("nombre", ""));
-                        $unidad = trim((string)obtener_post("unidad", "u"));
-                        $cantidad = (float)obtener_post("cantidad", 0);
-                        $stock_minimo = (float)obtener_post("stock_minimo", 0);
-                        $stock_maximo = (float)obtener_post("stock_maximo", 0);
-                        $precio_costo = (float)obtener_post("precio_costo", 0);
+                        $unidad = $this->resolver_unidad_form((string)obtener_post("unidad", "u"));
+                        $tipo_stock = trim((string)obtener_post("tipo_stock", (string)($s_actual["tipo_stock"] ?? "general")));
+                        $cantidad = parsear_numero_form(obtener_post("cantidad", 0), 0);
+                        $stock_minimo = parsear_numero_form(obtener_post("stock_minimo", 0), 0);
+                        $stock_maximo = parsear_numero_form(obtener_post("stock_maximo", 0), 0);
+                        $precio_costo = parsear_numero_form(obtener_post("precio_costo", 0), 0);
                         $activo = (int)obtener_post("activo", 1);
                         if (texto_invalido($nombre))
                             $error = "Nombre inválido (vacío o placeholder).";
                         else {
                             if (texto_invalido($unidad))
                                 $unidad = "u";
+                            $unidad = UnidadMedida::asegurar_desde_form($unidad, $this->datos_nueva_unidad_post());
                             if ($cantidad < 0)
                                 $cantidad = 0;
                             if ($precio_costo < 0)
@@ -165,7 +218,7 @@ class ControladorStock {
                                 $stock_minimo = 0;
                             if ($stock_maximo < 0)
                                 $stock_maximo = 0;
-                            $ok = Stock::actualizar($id, $nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo);
+                            $ok = Stock::actualizar_con_tipo($id, $nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock);
                             if ($ok) {
                                 $costo_anterior = (float)$s_actual["precio_costo"];
                                 $costo_nuevo = (float)$precio_costo;
@@ -191,6 +244,7 @@ class ControladorStock {
                     "id" => $id ?? 0,
                     "nombre" => $nombre ?? "",
                     "unidad" => $unidad ?? "u",
+                    "tipo_stock" => $tipo_stock ?? "general",
                     "cantidad" => $cantidad ?? 0,
                     "stock_minimo" => $stock_minimo ?? 0,
                     "stock_maximo" => $stock_maximo ?? 0,
@@ -239,6 +293,28 @@ class ControladorStock {
         }
     }
 
+    public function marcar_alerta_leida(): void {
+        if ($this->permiso()) {
+            if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
+                flash_error("Acceso invalido.");
+                redirigir("index.php?c=stock&a=index");
+                return;
+            }
+            $id_producto = (int)obtener_post("id_producto", 0);
+            $id_usuario = (int)($_SESSION["usuario_logueado"]["id"] ?? 0);
+            if ($id_producto <= 0) {
+                flash_error("Producto invalido.");
+            } else {
+                $ok = Stock::marcar_alerta_leida($id_producto, $id_usuario);
+                if ($ok)
+                    flash_ok("Alerta de stock marcada como leida.");
+                else
+                    flash_error("No se pudo marcar la alerta como leida.");
+            }
+            redirigir("index.php?c=stock&a=index");
+        }
+    }
+
     public function productos(): void {
         if ($this->permiso()) {
             $id = (int)obtener_get("id", 0);
@@ -249,7 +325,17 @@ class ControladorStock {
             } else {
                 $items = Stock::listar_todos();
                 $listas_precios = ListaPrecio::listar(true);
-                $productos = $this->listar_productos_por_stock($id);
+                $orden_productos_stock = orden_parametros([
+                    "nombre" => "nombre",
+                    "descripcion" => "nombre",
+                    "codigo" => "cod_barras",
+                    "codigo_barras" => "cod_barras",
+                    "precio" => "precio_final",
+                    "stock" => "factor_conversion",
+                    "estado" => "activo",
+                    "fecha" => "creado_en"
+                ], "nombre", "ASC");
+                $productos = $this->listar_productos_por_stock($id, $orden_productos_stock["sql"]);
                 $texto_buscar = trim((string)obtener_get("buscar", ""));
                 $campo_buscar = trim((string)obtener_get("campo", "todos"));
                 $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));
@@ -462,12 +548,12 @@ class ControladorStock {
         return reporte_html_tabla($titulo, "Articulos asociados al stock seleccionado", ["Articulo", "Codigo", "Factor", "Precio", "Estado"], $filas, 5, $detalle);
     }
 
-    private function listar_productos_por_stock(int $id_stock): array {
+    private function listar_productos_por_stock(int $id_stock, string $orden_sql = "nombre ASC"): array {
         $lista = [];
         $pdo = obtener_pdo();
         if ($pdo !== null && $id_stock > 0) {
             try {
-                $sql = "SELECT id, nombre, cod_barras, id_stock, factor_conversion, ganancia, precio_final, activo, creado_en FROM productos WHERE id_stock = ? ORDER BY nombre ASC";
+                $sql = "SELECT id, nombre, cod_barras, id_stock, factor_conversion, ganancia, precio_final, activo, creado_en FROM productos WHERE id_stock = ? ORDER BY " . $orden_sql . ", id ASC";
                 $st = $pdo->prepare($sql);
                 $st->execute([$id_stock]);
                 $rows = $st->fetchAll();

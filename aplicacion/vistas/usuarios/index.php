@@ -13,6 +13,8 @@ $campos_busqueda = $campos_busqueda ?? [];
     <form method="GET" action="index.php" class="row g-2 align-items-end" data-auto-submit-search="true" data-search-target="#usuariosResultados">
       <input type="hidden" name="c" value="usuarios">
       <input type="hidden" name="a" value="index">
+      <input type="hidden" name="orden" value="<?= htmlspecialchars($orden_usuarios["campo"] ?? "usuario") ?>">
+      <input type="hidden" name="direccion" value="<?= htmlspecialchars(strtolower($orden_usuarios["direccion"] ?? "ASC")) ?>">
       <div class="col-lg-5">
         <label class="form-label">Buscar usuario</label>
         <input type="text" class="form-control" name="buscar" value="<?= htmlspecialchars($texto_buscar) ?>" placeholder="Ej: usuario, rol o fecha">
@@ -50,10 +52,10 @@ $campos_busqueda = $campos_busqueda ?? [];
         <thead>
           <tr>
             <th>ID</th>
-            <th>Usuario</th>
+            <?= orden_tabla_th("Usuario", "usuario", $orden_usuarios ?? [], "texto") ?>
             <th>Rol</th>
-            <th>Activo</th>
-            <th>Creado</th>
+            <?= orden_tabla_th("Activo", "estado", $orden_usuarios ?? [], "texto") ?>
+            <?= orden_tabla_th("Creado", "fecha", $orden_usuarios ?? [], "texto") ?>
             <th style="width: 180px;">Acciones</th>
           </tr>
         </thead>
@@ -93,6 +95,7 @@ $campos_busqueda = $campos_busqueda ?? [];
     if (ok) {
       new DataTable('#tablaUsuarios', {
         searching: false,
+        ordering: false,
         language: {
           search: "Buscar:",
           lengthMenu: "Mostrar _MENU_",

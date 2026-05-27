@@ -1,0 +1,11 @@
+<section class="config-panel" data-panel="sistema">
+  <form method="POST" action="index.php?c=configuracion&a=guardar">
+    <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token()) ?>"><input type="hidden" name="seccion" value="sistema">
+    <div class="config-panel-head"><div><h4>Sistema</h4><p>Parametros avanzados y accesos especiales.</p></div><div class="d-flex gap-2"><button class="btn btn-outline-danger" form="reset-sistema" type="submit">Restablecer</button><button class="btn btn-primary" type="submit">Guardar cambios</button></div></div>
+    <div class="config-grid">
+      <div class="config-block"><h5>Sistema</h5><label class="form-label">URL Reparaciones</label><div class="input-group"><span class="input-group-text"><i class="bi bi-link-45deg"></i></span><input class="form-control" name="config[url_reparaciones]" value="<?= cfg_get($config, "url_reparaciones", "index.php?c=reparaciones&a=index") ?>"></div><label class="form-label mt-2">Atajo</label><div class="input-group"><span class="input-group-text"><i class="bi bi-keyboard"></i></span><input class="form-control" name="config[atajo_reparaciones]" value="<?= cfg_get($config, "atajo_reparaciones", "F9") ?>"></div></div>
+      <div class="config-block"><h5>Opciones</h5><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="config[mostrar_reparaciones]" value="1" <?= cfg_checked($config, "mostrar_reparaciones", "1") ?>><label class="form-check-label"><i class="bi bi-tools"></i> Mostrar Reparaciones</label></div><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="config[configuracion_separada]" value="1" <?= cfg_checked($config, "configuracion_separada", "1") ?>><label class="form-check-label"><i class="bi bi-gear-fill"></i> Mantener Configuracion separada de Ventas</label></div><div class="form-text">Si lo desactivas, Configuracion queda integrada al flujo de Ventas como antes.</div></div>
+    </div>
+  </form>
+  <form id="reset-sistema" method="POST" action="index.php?c=configuracion&a=restablecer"><input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token()) ?>"><input type="hidden" name="seccion" value="sistema"></form>
+</section>

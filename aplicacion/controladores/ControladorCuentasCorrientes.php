@@ -22,12 +22,23 @@ class ControladorCuentasCorrientes {
         if ($this->permiso()) {
             $buscar = trim((string)obtener_get("buscar", ""));
             $estado = strtolower(trim((string)obtener_get("estado", "todos")));
-            $orden = strtolower(trim((string)obtener_get("orden", "vencimiento")));
+            $orden_cuentas = orden_parametros([
+                "vencimiento" => "q.vencimiento",
+                "fecha" => "q.vencimiento",
+                "cliente" => "c.nombre",
+                "nombre" => "c.nombre",
+                "saldo" => "pendiente",
+                "monto" => "q.monto",
+                "precio" => "pendiente",
+                "stock" => "q.numero",
+                "estado" => "vencida"
+            ], "vencimiento", "ASC");
+            $orden = $orden_cuentas["campo"];
             if (!in_array($estado, ["todos", "vencidos", "proximos"], true))
                 $estado = "todos";
-            if (!in_array($orden, ["vencimiento", "cliente", "saldo", "estado"], true))
+            if (!in_array($orden, ["vencimiento", "fecha", "cliente", "nombre", "saldo", "monto", "precio", "stock", "estado"], true))
                 $orden = "vencimiento";
-            $cuotas = CuentaCorriente::cuotas_pendientes_detalle($buscar, $estado, $orden);
+            $cuotas = CuentaCorriente::cuotas_pendientes_detalle($buscar, $estado, $orden, $orden_cuentas["direccion"]);
             $vencidas = array_values(array_filter($cuotas, fn($q) => (int)($q["vencida"] ?? 0) === 1));
             $proximas = array_values(array_filter($cuotas, fn($q) => (int)($q["vencida"] ?? 0) !== 1));
             $resumen = CuentaCorriente::resumen_general();

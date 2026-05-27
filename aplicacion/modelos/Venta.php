@@ -20,7 +20,7 @@ class Venta {
         return self::listar_ventas_periodo("", "");
     }
 
-    public static function listar_ventas_periodo(string $fecha_desde, string $fecha_hasta): array {
+    public static function listar_ventas_periodo(string $fecha_desde, string $fecha_hasta, string $orden_sql = "v.fecha DESC"): array {
         $lista = [];
         $pdo = obtener_pdo();
         if ($pdo !== null) {
@@ -34,7 +34,7 @@ class Venta {
                 if ($where !== "") {
                     $sql .= " WHERE " . $where;
                 }
-                $sql .= " ORDER BY v.id DESC";
+                $sql .= " ORDER BY " . $orden_sql . ", v.id DESC";
                 $st = $pdo->prepare($sql);
                 $st->execute($params);
                 $rows = $st->fetchAll();

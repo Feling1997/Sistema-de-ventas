@@ -14,6 +14,11 @@ if ($id_lista_precio_actual <= 0)
     <h3 class="mb-1">Productos</h3>
   </div>
   <div class="d-flex gap-2">
+    <a class="btn btn-outline-primary" href="index.php?c=importacion&a=index">Importar Excel</a>
+    <form method="POST" action="index.php?c=productos&a=eliminar_no_vendidos" class="m-0" onsubmit="return confirm('Esto elimina TODOS los productos sin ventas asociadas y sus stocks sin uso. No afecta productos vendidos. Continuar?');">
+      <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token()) ?>">
+      <button class="btn btn-outline-danger" type="submit">Eliminar no vendidos</button>
+    </form>
     <a class="btn btn-primary" href="index.php?c=productos&a=nuevo">+ Nuevo</a>
   </div>
 </div>
@@ -22,6 +27,8 @@ if ($id_lista_precio_actual <= 0)
     <form method="GET" action="index.php" class="row g-2 align-items-end" data-auto-submit-search="true" data-search-target="#productosResultados">
       <input type="hidden" name="c" value="productos">
       <input type="hidden" name="a" value="index">
+      <input type="hidden" name="orden" value="<?= htmlspecialchars($orden_productos["campo"] ?? "nombre") ?>">
+      <input type="hidden" name="direccion" value="<?= htmlspecialchars(strtolower($orden_productos["direccion"] ?? "ASC")) ?>">
       <div class="col-md-4 col-lg-5">
         <label class="form-label">Buscar</label>
         <input type="text" class="form-control" name="buscar" value="<?= htmlspecialchars($texto_buscar) ?>" placeholder="Ej: nombre, código o precio">
@@ -62,19 +69,19 @@ if ($id_lista_precio_actual <= 0)
 <div id="productosResultados">
   <div class="card list-shell">
     <div class="card-body p-4">
-      <div class="table-responsive">
-        <table id="tablaProductos" class="table table-striped align-middle admin-table">
+      <div class="table-responsive productos-table-responsive">
+        <table id="tablaProductos" class="table table-striped align-middle admin-table productos-table">
         <thead>
           <tr>
             <th>ID</th>
-            <th>Nombre</th>
-            <th>Código barras</th>
-            <th>Stock</th>
+            <?= orden_tabla_th("Nombre", "nombre", $orden_productos ?? [], "texto") ?>
+            <?= orden_tabla_th("Codigo barras", "codigo_barras", $orden_productos ?? [], "texto") ?>
+            <?= orden_tabla_th("Stock", "stock", $orden_productos ?? [], "numero") ?>
             <th>Cantidad</th>
             <th>Factor</th>
             <th>%</th>
-            <th>Precio</th>
-            <th>Estado</th>
+            <?= orden_tabla_th("Precio", "precio", $orden_productos ?? [], "numero") ?>
+            <?= orden_tabla_th("Estado", "estado", $orden_productos ?? [], "texto") ?>
             <th style="width: 170px;">Acciones</th>
           </tr>
         </thead>
@@ -121,6 +128,9 @@ if ($id_lista_precio_actual <= 0)
     if (ok) {
       new DataTable('#tablaProductos', {
         searching: false,
+        autoWidth: false,
+        scrollX: true,
+        ordering: false,
         language: {
           search: "Buscar:",
           lengthMenu: "Mostrar _MENU_",

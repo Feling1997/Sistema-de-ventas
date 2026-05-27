@@ -7,6 +7,10 @@ $campo_buscar = $campo_buscar ?? "todos";
 $metodo_buscar = $metodo_buscar ?? "contiene";
 $campos_busqueda = $campos_busqueda ?? [];
 $listas_precios = $listas_precios ?? [];
+$alertas_stock_bajo = $alertas_stock_bajo ?? [];
+$resumen_alertas_stock = $resumen_alertas_stock ?? ["total" => 0, "pendientes" => 0, "leidas" => 0];
+$filtro_alertas_stock = $filtro_alertas_stock ?? "bajo";
+$mostrar_alertas_leidas = $mostrar_alertas_leidas ?? false;
 ?>
 <?php if ($viendo_productos): ?>
   <?php
@@ -35,6 +39,8 @@ $listas_precios = $listas_precios ?? [];
         <input type="hidden" name="c" value="stock">
         <input type="hidden" name="a" value="productos">
         <input type="hidden" name="id" value="<?= $id_stock ?>">
+        <input type="hidden" name="orden" value="<?= htmlspecialchars($orden_productos_stock["campo"] ?? "nombre") ?>">
+        <input type="hidden" name="direccion" value="<?= htmlspecialchars(strtolower($orden_productos_stock["direccion"] ?? "ASC")) ?>">
         <div class="col-lg-5">
           <label class="form-label">Buscar producto asociado</label>
           <input type="text" class="form-control" name="buscar" value="<?= htmlspecialchars($texto_buscar) ?>" placeholder="Ej: nombre, código o precio">
@@ -72,12 +78,12 @@ $listas_precios = $listas_precios ?? [];
           <thead>
             <tr>
               <th>ID</th>
-              <th>Nombre</th>
-              <th>Código barras</th>
+              <?= orden_tabla_th("Nombre", "nombre", $orden_productos_stock ?? [], "texto") ?>
+              <?= orden_tabla_th("Codigo barras", "codigo_barras", $orden_productos_stock ?? [], "texto") ?>
               <th>Factor</th>
               <th>Ganancia %</th>
-              <th>Precio final</th>
-              <th>Estado</th>
+              <?= orden_tabla_th("Precio final", "precio", $orden_productos_stock ?? [], "numero") ?>
+              <?= orden_tabla_th("Estado", "estado", $orden_productos_stock ?? [], "texto") ?>
               <th style="width: 140px;">Acciones</th>
             </tr>
           </thead>
@@ -118,11 +124,89 @@ $listas_precios = $listas_precios ?? [];
       <a class="btn btn-primary" href="index.php?c=stock&a=nuevo">+ Nuevo</a>
     </div>
   </div>
+  <div class="stock-alert-panel mb-3">
+    <div class="stock-alert-panel-header">
+      <div>
+        <h5 class="mb-1"><i class="bi bi-exclamation-circle-fill"></i> Productos con stock bajo</h5>
+        <div class="text-muted small">
+          Pendientes: <?= (int)($resumen_alertas_stock["pendientes"] ?? 0) ?> | Leidos: <?= (int)($resumen_alertas_stock["leidas"] ?? 0) ?> | Total: <?= (int)($resumen_alertas_stock["total"] ?? 0) ?>
+        </div>
+      </div>
+      <form method="GET" action="index.php" class="stock-alert-filters">
+        <input type="hidden" name="c" value="stock">
+        <input type="hidden" name="a" value="index">
+        <label class="form-check">
+          <input class="form-check-input" type="radio" name="filtro_alertas_stock" value="bajo" <?= $filtro_alertas_stock === "bajo" ? "checked" : "" ?> onchange="this.form.submit()">
+          <span class="form-check-label">Solo stock bajo</span>
+        </label>
+        <label class="form-check">
+          <input class="form-check-input" type="radio" name="filtro_alertas_stock" value="criticos" <?= $filtro_alertas_stock === "criticos" ? "checked" : "" ?> onchange="this.form.submit()">
+          <span class="form-check-label">Solo criticos</span>
+        </label>
+        <label class="form-check">
+          <input class="form-check-input" type="checkbox" name="mostrar_alertas_leidas" value="1" <?= $mostrar_alertas_leidas ? "checked" : "" ?> onchange="this.form.submit()">
+          <span class="form-check-label">Mostrar leidos</span>
+        </label>
+      </form>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 stock-alert-table">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Stock actual</th>
+            <th>Stock minimo</th>
+            <th>Estado</th>
+            <th>Ultimo movimiento</th>
+            <th style="width: 170px;">Lectura</th>
+          </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($alertas_stock_bajo as $alerta): ?>
+          <?php
+            $cantidad_alerta = (float)($alerta["cantidad"] ?? 0);
+            $dec_alerta = (int)($alerta["unidad_decimales"] ?? 3);
+            $estado_alerta = $cantidad_alerta <= 0.000001 ? "Critico" : "Bajo";
+            $estado_clase = $cantidad_alerta <= 0.000001 ? "critical" : "low";
+            $pendiente_alerta = (int)($alerta["pendiente"] ?? 0) === 1;
+            $fecha_mov = trim((string)($alerta["ultimo_movimiento"] ?? ""));
+          ?>
+          <tr class="<?= $pendiente_alerta ? "stock-alert-row-pending" : "stock-alert-row-read" ?>">
+            <td>
+              <strong><?= htmlspecialchars((string)($alerta["producto"] ?? "")) ?></strong>
+              <div class="text-muted small"><?= htmlspecialchars((string)($alerta["stock_nombre"] ?? "")) ?></div>
+            </td>
+            <td><?= htmlspecialchars(stock_para_mostrar($alerta["cantidad"] ?? 0, $dec_alerta)) ?> <?= htmlspecialchars((string)($alerta["unidad"] ?? "")) ?></td>
+            <td><?= htmlspecialchars(numero_para_mostrar($alerta["stock_minimo"] ?? 0, $dec_alerta)) ?> <?= htmlspecialchars((string)($alerta["unidad"] ?? "")) ?></td>
+            <td><span class="stock-alert-state <?= $estado_clase ?>"><?= $estado_alerta === "Critico" ? "Critico" : "Bajo" ?></span></td>
+            <td><?= $fecha_mov !== "" ? htmlspecialchars(date("d/m/Y H:i", strtotime($fecha_mov))) : "Sin movimientos" ?></td>
+            <td>
+              <?php if ($pendiente_alerta): ?>
+                <form method="POST" action="index.php?c=stock&a=marcar_alerta_leida" class="m-0">
+                  <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token()) ?>">
+                  <input type="hidden" name="id_producto" value="<?= (int)($alerta["id_producto"] ?? 0) ?>">
+                  <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-check-circle-fill"></i> Marcar como leido</button>
+                </form>
+              <?php else: ?>
+                <span class="badge bg-secondary">Leido</span>
+              <?php endif; ?>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        <?php if (count($alertas_stock_bajo) === 0): ?>
+          <tr><td colspan="6" class="text-center text-muted">No hay alertas para los filtros seleccionados.</td></tr>
+        <?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
   <div class="card search-shell mb-3">
     <div class="card-body p-3">
       <form method="GET" action="index.php" class="row g-2 align-items-end" data-auto-submit-search="true" data-search-target="#stockResultados">
         <input type="hidden" name="c" value="stock">
         <input type="hidden" name="a" value="index">
+        <input type="hidden" name="orden" value="<?= htmlspecialchars($orden_stock["campo"] ?? "nombre") ?>">
+        <input type="hidden" name="direccion" value="<?= htmlspecialchars(strtolower($orden_stock["direccion"] ?? "ASC")) ?>">
         <div class="col-lg-5">
           <label class="form-label">Buscar stock</label>
           <input type="text" class="form-control" name="buscar" value="<?= htmlspecialchars($texto_buscar) ?>" placeholder="Ej: nombre, unidad o precio">
@@ -160,25 +244,42 @@ $listas_precios = $listas_precios ?? [];
           <thead>
             <tr>
               <th>ID</th>
-              <th>Nombre</th>
-              <th>Cantidad</th>
+              <?= orden_tabla_th("Nombre", "nombre", $orden_stock ?? [], "texto") ?>
+              <?= orden_tabla_th("Cantidad", "stock", $orden_stock ?? [], "numero") ?>
               <th>Min.</th>
               <th>Max.</th>
               <th>Unidad</th>
-              <th>Precio costo</th>
+              <th>Tipo</th>
+              <?= orden_tabla_th("Precio costo", "precio", $orden_stock ?? [], "numero") ?>
               <th style="width: 170px;">Agregar stock</th>
               <th style="width: 190px;">Acciones</th>
             </tr>
           </thead>
           <tbody>
           <?php foreach ($items as $fila): ?>
-            <tr>
+            <?php
+              $decimales_unidad = (int)($fila["unidad_decimales"] ?? 3);
+              $stock_cantidad_num = parsear_numero_form($fila["cantidad"] ?? 0, 0);
+              $stock_minimo_num = parsear_numero_form($fila["stock_minimo"] ?? 0, 0);
+              $stock_bajo_fila = (int)($fila["activo"] ?? 0) === 1 && $stock_cantidad_num <= $stock_minimo_num;
+              $stock_critico_fila = $stock_bajo_fila && $stock_cantidad_num <= 0.000001;
+            ?>
+            <tr class="<?= $stock_bajo_fila ? "stock-main-alert-row" : "" ?>">
               <td><?= (int)$fila["id"] ?></td>
-              <td><?= htmlspecialchars($fila["nombre"] ?? "") ?></td>
-              <td><?= htmlspecialchars(stock_para_mostrar($fila["cantidad"] ?? 0, 3)) ?></td>
-              <td><?= htmlspecialchars($fila["stock_minimo"] ?? "0") ?></td>
-              <td><?= htmlspecialchars($fila["stock_maximo"] ?? "0") ?></td>
+              <td>
+                <?php if ($stock_bajo_fila): ?>
+                  <i class="bi bi-exclamation-circle-fill text-danger me-1"></i>
+                <?php endif; ?>
+                <strong><?= htmlspecialchars($fila["nombre"] ?? "") ?></strong>
+                <?php if ($stock_bajo_fila): ?>
+                  <span class="badge badge-stock-alerta-tabla ms-2"><?= $stock_critico_fila ? "Critico" : "Bajo" ?></span>
+                <?php endif; ?>
+              </td>
+              <td><?= htmlspecialchars(stock_para_mostrar($fila["cantidad"] ?? 0, $decimales_unidad)) ?></td>
+              <td><?= htmlspecialchars(numero_para_mostrar($fila["stock_minimo"] ?? "0", $decimales_unidad)) ?></td>
+              <td><?= htmlspecialchars(numero_para_mostrar($fila["stock_maximo"] ?? "0", $decimales_unidad)) ?></td>
               <td><?= htmlspecialchars($fila["unidad"] ?? "") ?></td>
+              <td><span class="badge bg-<?= (($fila["tipo_stock"] ?? "general") === "general") ? "primary" : "secondary" ?>"><?= (($fila["tipo_stock"] ?? "general") === "general") ? "General" : "Propio" ?></span></td>
               <td><?= htmlspecialchars(precio_para_mostrar($fila["precio_costo"] ?? 0)) ?></td>
               <td>
                 <form method="POST" action="index.php?c=stock&a=agregar" class="stock-add-form">
@@ -208,7 +309,7 @@ $listas_precios = $listas_precios ?? [];
             </tr>
           <?php endforeach; ?>
           <?php if (count($items) === 0): ?>
-            <tr><td colspan="9" class="text-center text-muted">Sin stock.</td></tr>
+            <tr><td colspan="10" class="text-center text-muted">Sin stock.</td></tr>
           <?php endif; ?>
           </tbody>
           </table>
@@ -216,6 +317,38 @@ $listas_precios = $listas_precios ?? [];
       </div>
     </div>
   </div>
+  <?php
+    $toast_alerta_stock = null;
+    foreach ($alertas_stock_bajo as $alerta_toast) {
+        if ((int)($alerta_toast["pendiente"] ?? 0) === 1) {
+            $toast_alerta_stock = $alerta_toast;
+            break;
+        }
+    }
+  ?>
+  <?php if ($toast_alerta_stock !== null): ?>
+    <div class="toast-container position-fixed top-0 end-0 p-3">
+      <div class="toast stock-low-toast" role="status" aria-live="polite" aria-atomic="true" data-stock-low-toast>
+        <div class="toast-header">
+          <i class="bi bi-exclamation-circle-fill text-danger me-2"></i>
+          <strong class="me-auto">Stock bajo</strong>
+          <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Cerrar"></button>
+        </div>
+        <div class="toast-body">
+          <?= htmlspecialchars((string)($toast_alerta_stock["producto"] ?? "")) ?>
+        </div>
+      </div>
+    </div>
+    <script>
+    (function () {
+      document.addEventListener('DOMContentLoaded', function () {
+        const toastEl = document.querySelector('[data-stock-low-toast]');
+        if (toastEl && window.bootstrap)
+          bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 5000 }).show();
+      });
+    })();
+    </script>
+  <?php endif; ?>
 <?php endif; ?>
 <script>
 (function () {
@@ -226,6 +359,7 @@ $listas_precios = $listas_precios ?? [];
     if (ok) {
       new DataTable('#tablaStockProductos', {
         searching: false,
+        ordering: false,
         language: {
           search: "Buscar:",
           lengthMenu: "Mostrar _MENU_",

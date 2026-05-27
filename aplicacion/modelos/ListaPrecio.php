@@ -34,7 +34,6 @@ class ListaPrecio {
                 KEY idx_historial_precios_producto (id_producto)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
             self::asegurar_lista_base($pdo, "Costo");
-            self::asegurar_lista_base($pdo, "Publico");
             self::asegurar_columna_cliente($pdo);
         } catch (Throwable $e) {
             registrar_log("ListaPrecio::asegurar_tablas", $e->getMessage());
@@ -66,12 +65,12 @@ class ListaPrecio {
             return false;
         foreach (self::listar(false) as $lista) {
             if ((int)($lista["id"] ?? 0) === $id)
-                return self::es_lista_costo($lista) || self::es_lista_publico($lista);
+                return self::es_lista_costo($lista);
         }
         return false;
     }
 
-    public static function listar(bool $solo_activas = false): array {
+    public static function listar(bool $solo_activas = false, string $orden_sql = "nombre ASC"): array {
         self::asegurar_tablas();
         $lista = [];
         $pdo = obtener_pdo();
@@ -80,7 +79,7 @@ class ListaPrecio {
                 $sql = "SELECT id, nombre, activo, creado_en FROM listas_precios";
                 if ($solo_activas)
                     $sql .= " WHERE activo = 1";
-                $sql .= " ORDER BY id ASC";
+                $sql .= " ORDER BY " . $orden_sql . ", id ASC";
                 $st = $pdo->prepare($sql);
                 $st->execute();
                 $rows = $st->fetchAll();
@@ -154,10 +153,36 @@ class ListaPrecio {
         $pdo = obtener_pdo();
         if ($pdo !== null && $id_producto > 0) {
             try {
-                $st = $pdo->prepare("SELECT id_lista, porcentaje, precio FROM producto_precios WHERE id_producto = ?");
+                $st = $pdo->prepare("SELECT pp.id_lista, pp.porcentaje, pp.precio, l.nombre AS lista_nombre
+                                     FROM producto_precios pp
+                                     INNER JOIN listas_precios l ON l.id = pp.id_lista
+                                     WHERE pp.id_producto = ?");
                 $st->execute([$id_producto]);
                 foreach ($st->fetchAll() as $row)
                     $precios[(int)$row["id_lista"]] = $row;
+                $costo = 0.0;
+                foreach ($precios as $row) {
+                    if (self::es_lista_costo(["nombre" => (string)($row["lista_nombre"] ?? "")])) {
+                        $costo = (float)($row["precio"] ?? 0);
+                        break;
+                    }
+                }
+                if ($costo <= 0) {
+                    $st_costo = $pdo->prepare("SELECT COALESCE(s.precio_costo, 0) AS costo_stock FROM productos p LEFT JOIN stock s ON s.id = p.id_stock WHERE p.id = ? LIMIT 1");
+                    $st_costo->execute([$id_producto]);
+                    $costo = (float)($st_costo->fetch()["costo_stock"] ?? 0);
+                }
+                foreach ($precios as &$row) {
+                    if (self::es_lista_costo(["nombre" => (string)($row["lista_nombre"] ?? "")])) {
+                        $row["porcentaje"] = 0;
+                        if ((float)($row["precio"] ?? 0) <= 0)
+                            $row["precio"] = $costo;
+                        continue;
+                    }
+                    if ((float)($row["porcentaje"] ?? 0) <= 0 && $costo > 0 && (float)($row["precio"] ?? 0) > 0)
+                        $row["porcentaje"] = (((float)$row["precio"] / $costo) - 1) * 100;
+                }
+                unset($row);
             } catch (Throwable $e) {
                 registrar_log("ListaPrecio::precios_producto", $e->getMessage());
             }
@@ -253,11 +278,14 @@ class ListaPrecio {
         try {
             $sql = "SELECT l.nombre AS lista_nombre, COALESCE(pp.porcentaje, 0) AS porcentaje,
                            COALESCE(pp.precio, 0) AS precio,
-                           COALESCE(s.precio_costo, 0) AS costo_stock
+                           COALESCE(s.precio_costo, 0) AS costo_stock,
+                           COALESCE(pc.precio, 0) AS costo_lista
                     FROM productos p
                     INNER JOIN listas_precios l ON l.id = ?
                     LEFT JOIN stock s ON s.id = p.id_stock
                     LEFT JOIN producto_precios pp ON pp.id_producto = p.id AND pp.id_lista = l.id
+                    LEFT JOIN listas_precios lc ON LOWER(lc.nombre) = 'costo' AND lc.activo = 1
+                    LEFT JOIN producto_precios pc ON pc.id_producto = p.id AND pc.id_lista = lc.id
                     WHERE p.id = ?
                     LIMIT 1";
             $st = $pdo->prepare($sql);
@@ -267,15 +295,24 @@ class ListaPrecio {
                 return null;
             $lista = ["nombre" => (string)($r["lista_nombre"] ?? "")];
             if (self::es_lista_costo($lista)) {
+                $costo = (float)($r["precio"] ?? 0);
+                if ($costo <= 0)
+                    $costo = (float)($r["costo_stock"] ?? 0);
                 return [
                     "porcentaje" => 0.0,
-                    "precio" => (float)($r["costo_stock"] ?? 0)
+                    "precio" => $costo
                 ];
             }
             if ((float)($r["precio"] ?? 0) <= 0)
                 return null;
+            $porcentaje = (float)$r["porcentaje"];
+            $costo_base = (float)($r["costo_lista"] ?? 0);
+            if ($costo_base <= 0)
+                $costo_base = (float)($r["costo_stock"] ?? 0);
+            if ($porcentaje <= 0 && $costo_base > 0)
+                $porcentaje = (((float)$r["precio"] / $costo_base) - 1) * 100;
             return [
-                "porcentaje" => (float)$r["porcentaje"],
+                "porcentaje" => $porcentaje,
                 "precio" => (float)$r["precio"]
             ];
         } catch (Throwable $e) {

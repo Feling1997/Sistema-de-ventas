@@ -53,6 +53,8 @@ foreach ($ventas as $venta_detalle_item) {
     <form method="get" action="index.php" class="row g-2 align-items-end" data-auto-submit-search="true" data-search-target="#ventasResultados">
       <input type="hidden" name="c" value="ventas">
       <input type="hidden" name="a" value="lista">
+      <input type="hidden" name="orden" value="<?= htmlspecialchars($orden_ventas["campo"] ?? "fecha") ?>">
+      <input type="hidden" name="direccion" value="<?= htmlspecialchars(strtolower($orden_ventas["direccion"] ?? "DESC")) ?>">
       <div class="col-lg-2 col-md-3">
         <label for="fecha_desde" class="form-label">Desde</label>
         <input type="date" class="form-control" id="fecha_desde" name="fecha_desde" value="<?= htmlspecialchars($fecha_desde) ?>">
@@ -127,9 +129,9 @@ foreach ($ventas as $venta_detalle_item) {
         <table class="ventas-select-table">
           <thead>
             <tr>
-              <th>Fecha</th>
-              <th>Cliente</th>
-              <th style="text-align:right;">Total</th>
+              <?= orden_tabla_th("Fecha", "fecha", $orden_ventas ?? [], "texto") ?>
+              <?= orden_tabla_th("Cliente", "cliente", $orden_ventas ?? [], "texto") ?>
+              <?= orden_tabla_th("Total", "precio", $orden_ventas ?? [], "numero") ?>
               <th>Fiscal</th>
               <th>Ticket</th>
             </tr>

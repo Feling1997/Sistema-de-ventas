@@ -6,11 +6,11 @@
     "email": "",
     "observaciones": "",
     "imagen_panel": "publico/assets/img/panel_fondo.jpeg",
-    "color_fondo": "#f4f6f8",
+    "color_fondo": "#a1a257",
     "color_tarjetas": "#ffffff",
     "color_texto": "#203040",
     "color_texto_suave": "#657789",
     "color_borde": "#dbe3ea",
-    "color_panel_inicio": "#31dd4e",
-    "color_panel_inicio_2": "#5bcdc7"
+    "color_panel_inicio": "#155e75",
+    "color_panel_inicio_2": "#48aaa5"
 }

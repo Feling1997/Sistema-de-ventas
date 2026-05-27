@@ -5,11 +5,14 @@ $xamppSource = "C:\xampp82"
 $ventasSource = Join-Path $xamppSource "htdocs\VENTAS"
 $buildDir = Join-Path $projectDir "build_instalador_ventas_reparaciones"
 $stagingDir = Join-Path $buildDir "payload"
+$installRootName = "Ventas y Reparaciones"
+$installRootPath = "C:\Ventas y Reparaciones"
 $payloadZip = Join-Path $buildDir "ventas_reparaciones_payload.zip"
 $installerSource = Join-Path $buildDir "InstaladorVentasReparaciones.cs"
 $launcherSource = Join-Path $buildDir "ControlVentasReparaciones.cs"
+$schemaSource = Join-Path $buildDir "instalacion_schema.sql"
 $installerExe = Join-Path $projectDir "Instalador_Ventas_Reparaciones.exe"
-$launcherExe = Join-Path $stagingDir "xampp82\CONTROL VENTAS.exe"
+$launcherExe = Join-Path $stagingDir "$installRootName\Ventas y Reparaciones.exe"
 $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 if (-not (Test-Path -LiteralPath $csc)) {
@@ -26,6 +29,15 @@ if (-not (Test-Path -LiteralPath $xamppSource)) {
 
 if (-not (Test-Path -LiteralPath $ventasSource)) {
     throw "No se encontro C:\xampp82\htdocs\VENTAS."
+}
+
+function Set-Utf8NoBom {
+    param(
+        [string]$LiteralPath,
+        [string]$Value
+    )
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($LiteralPath, $Value, $encoding)
 }
 
 function Stop-LocalServer {
@@ -66,6 +78,26 @@ function Invoke-RobocopyChecked {
     }
 }
 
+function Update-PortableRootPaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$RootPath,
+        [Parameter(Mandatory = $true)][string]$TargetRoot
+    )
+
+    $targetSlash = $TargetRoot.Replace("\", "/")
+    $targetBackslash = $TargetRoot
+    $patterns = @("*.conf", "*.ini", "*.cnf", "*.bat", "*.cmd")
+    foreach ($pattern in $patterns) {
+        Get-ChildItem -LiteralPath $RootPath -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+            $contenido = Get-Content -LiteralPath $_.FullName -Raw -Encoding Default
+            $nuevo = $contenido.Replace("C:/xampp82", $targetSlash).Replace("C:\xampp82", $targetBackslash)
+            if ($nuevo -ne $contenido) {
+                Set-Content -LiteralPath $_.FullName -Value $nuevo -Encoding Default
+            }
+        }
+    }
+}
+
 function New-ShortcutScript {
     param(
         [Parameter(Mandatory = $true)][string]$Path
@@ -87,7 +119,7 @@ if ($env:OneDrive) {
         $oneDriveDesktop = $possible
     }
 }
-$startMenu = Join-Path ([Environment]::GetFolderPath("Programs")) "Ventas Reparaciones"
+$startMenu = Join-Path ([Environment]::GetFolderPath("Programs")) "Ventas y Reparaciones"
 
 New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
 
@@ -108,24 +140,24 @@ function New-Shortcut {
 }
 
 if ($desktop) {
-    New-Shortcut -Path (Join-Path $desktop "CONTROL VENTAS.lnk") -Target $Launcher
+    New-Shortcut -Path (Join-Path $desktop "Ventas y Reparaciones.lnk") -Target $Launcher
 }
 if ($oneDriveDesktop -and $oneDriveDesktop -ne $desktop) {
-    New-Shortcut -Path (Join-Path $oneDriveDesktop "CONTROL VENTAS.lnk") -Target $Launcher
+    New-Shortcut -Path (Join-Path $oneDriveDesktop "Ventas y Reparaciones.lnk") -Target $Launcher
 }
 
 if ($publicDesktop) {
     try {
-        New-Shortcut -Path (Join-Path $publicDesktop "CONTROL VENTAS.lnk") -Target $Launcher
+        New-Shortcut -Path (Join-Path $publicDesktop "Ventas y Reparaciones.lnk") -Target $Launcher
     } catch {
     }
 }
 
-New-Shortcut -Path (Join-Path $startMenu "CONTROL VENTAS.lnk") -Target $Launcher
+New-Shortcut -Path (Join-Path $startMenu "Ventas y Reparaciones.lnk") -Target $Launcher
 '@ | Set-Content -LiteralPath $Path -Encoding ASCII
 }
 
-function Write-SampleInstallerConfig {
+function Write-CleanInstallerConfig {
     param(
         [Parameter(Mandatory = $true)][string]$VentasPath
     )
@@ -137,7 +169,7 @@ function Write-SampleInstallerConfig {
 
     @'
 {
-    "nombre_comercio": "MI COMERCIO",
+    "nombre_comercio": "",
     "razon_social": "",
     "cuit": "",
     "condicion_iva": "",
@@ -152,11 +184,12 @@ function Write-SampleInstallerConfig {
     "inicio_actividades": "",
     "punto_venta": 1,
     "formato_impresion_ticket": "80",
-    "texto_pie_ticket": "Gracias por su compra",
+    "texto_pie_ticket": "",
     "logo_ticket": "",
     "url_reparaciones": "index.php?c=reparaciones&a=index",
     "mostrar_reparaciones": "1",
     "atajo_reparaciones": "F9",
+    "configuracion_separada": "1",
     "color_acento": "#1f6f8b",
     "color_fondo": "#f4f6f8",
     "color_fondo_secundario": "#f9fbfc",
@@ -167,7 +200,7 @@ function Write-SampleInstallerConfig {
     "color_panel_inicio": "#155e75",
     "color_panel_inicio_2": "#48aaa5",
     "imagen_panel": "",
-    "navbar_marca_texto": "MI COMERCIO",
+    "navbar_marca_texto": "",
     "navbar_mostrar_marca": "1",
     "navbar_mostrar_config": "1",
     "navbar_mostrar_usuario": "1",
@@ -190,20 +223,92 @@ function Write-SampleInstallerConfig {
     "backup_b2_application_key": "",
     "backup_b2_bucket_id": "",
     "backup_b2_bucket_name": "",
-    "backup_b2_carpeta": "ventas-reparaciones"
+    "backup_b2_carpeta": "ventas-reparaciones",
+    "auth_modo": "sin_login"
 }
-'@ | Set-Content -LiteralPath (Join-Path $almacenamiento "configuracion_sistema.json") -Encoding UTF8
+'@ | ForEach-Object { Set-Utf8NoBom -LiteralPath (Join-Path $almacenamiento "configuracion_sistema.json") -Value $_ }
 
     @'
 {
-  "nombre": "MI COMERCIO",
+  "nombre": "",
   "telefono": "",
   "direccion": "",
   "documento": "",
   "email": "",
   "observaciones": ""
 }
-'@ | Set-Content -LiteralPath (Join-Path $reparaciones "comercio_config.json") -Encoding UTF8
+'@ | ForEach-Object { Set-Utf8NoBom -LiteralPath (Join-Path $reparaciones "comercio_config.json") -Value $_ }
+}
+
+function Write-CleanArcaConfig {
+    param(
+        [Parameter(Mandatory = $true)][string]$VentasPath
+    )
+
+    @'
+<?php
+
+return array (
+  'habilitado' => false,
+  'modo' => 'homologacion',
+  'proveedor' => 'api_rest',
+  'timeout_segundos' => 20,
+  'api_rest' =>
+  array (
+    'endpoint' => '',
+    'token' => '',
+  ),
+  'empresa' =>
+  array (
+    'cuit' => '',
+    'punto_venta' => 1,
+    'condicion_iva' => '',
+    'razon_social' => '',
+    'domicilio' => '',
+    'ingresos_brutos' => '',
+    'inicio_actividades' => '',
+  ),
+  'comprobante_defecto' =>
+  array (
+    'tipo' => 6,
+    'concepto' => 1,
+    'moneda' => 'PES',
+    'cotizacion' => 1,
+    'iva_porcentaje' => 21,
+    'copia' => 'ORIGINAL',
+    'remito' => '',
+  ),
+);
+'@ | ForEach-Object { Set-Utf8NoBom -LiteralPath (Join-Path $VentasPath "configuraciones\arca.php") -Value $_ }
+}
+
+function Export-CleanDatabaseSchema {
+    param(
+        [Parameter(Mandatory = $true)][string]$OutputPath
+    )
+
+    $mysqldump = Join-Path $xamppSource "mysql\bin\mysqldump.exe"
+    if (-not (Test-Path -LiteralPath $mysqldump)) {
+        throw "No se encontro mysqldump.exe para generar el esquema limpio."
+    }
+    $schema = & $mysqldump --user=root --databases sistema_ventas --no-data --skip-comments --routines --events 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $schema) {
+        throw "No se pudo generar el esquema limpio de sistema_ventas. Inicie MySQL local y reintente."
+    }
+    $schema | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+}
+
+function Remove-InstallerBusinessDatabases {
+    param(
+        [Parameter(Mandatory = $true)][string]$MysqlDataPath
+    )
+
+    foreach ($db in @("sistema_ventas", "contabilidad_app", "test")) {
+        $path = Join-Path $MysqlDataPath $db
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force
+        }
+    }
 }
 
 if (Test-Path -LiteralPath $buildDir) {
@@ -212,19 +317,24 @@ if (Test-Path -LiteralPath $buildDir) {
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 
+Write-Host "Generando esquema limpio de base de datos..."
+Export-CleanDatabaseSchema -OutputPath $schemaSource
+
 Write-Host "Deteniendo Apache/MySQL locales para copiar datos de forma consistente..."
 Stop-LocalServer -Ports @(80, 3306)
 Start-Sleep -Seconds 2
 
 Write-Host "Copiando runtime portable de XAMPP..."
-New-Item -ItemType Directory -Force -Path (Join-Path $stagingDir "xampp82") | Out-Null
-Invoke-RobocopyChecked -Source (Join-Path $xamppSource "apache") -Destination (Join-Path $stagingDir "xampp82\apache")
-Invoke-RobocopyChecked -Source (Join-Path $xamppSource "php") -Destination (Join-Path $stagingDir "xampp82\php")
-Invoke-RobocopyChecked -Source (Join-Path $xamppSource "mysql") -Destination (Join-Path $stagingDir "xampp82\mysql") -ExtraArgs @("/XF", "mysql.pid", "*.err")
-Invoke-RobocopyChecked -Source (Join-Path $xamppSource "tmp") -Destination (Join-Path $stagingDir "xampp82\tmp")
+$payloadRoot = Join-Path $stagingDir $installRootName
+New-Item -ItemType Directory -Force -Path $payloadRoot | Out-Null
+Invoke-RobocopyChecked -Source (Join-Path $xamppSource "apache") -Destination (Join-Path $payloadRoot "apache")
+Invoke-RobocopyChecked -Source (Join-Path $xamppSource "php") -Destination (Join-Path $payloadRoot "php")
+Invoke-RobocopyChecked -Source (Join-Path $xamppSource "mysql") -Destination (Join-Path $payloadRoot "mysql") -ExtraArgs @("/XF", "mysql.pid", "*.err")
+Remove-InstallerBusinessDatabases -MysqlDataPath (Join-Path $payloadRoot "mysql\data")
+Invoke-RobocopyChecked -Source (Join-Path $xamppSource "tmp") -Destination (Join-Path $payloadRoot "tmp")
 
 Write-Host "Copiando aplicacion VENTAS..."
-Invoke-RobocopyChecked -Source $ventasSource -Destination (Join-Path $stagingDir "xampp82\htdocs\VENTAS") -ExtraArgs @(
+Invoke-RobocopyChecked -Source $ventasSource -Destination (Join-Path $payloadRoot "htdocs\VENTAS") -ExtraArgs @(
     "/XD",
     ".git",
     "build_instalador_reparaciones",
@@ -234,7 +344,9 @@ Invoke-RobocopyChecked -Source $ventasSource -Destination (Join-Path $stagingDir
     "Instalador_Ventas_Reparaciones.exe",
     "reparaciones_python_instalador.zip"
 )
-Write-SampleInstallerConfig -VentasPath (Join-Path $stagingDir "xampp82\htdocs\VENTAS")
+Write-CleanInstallerConfig -VentasPath (Join-Path $payloadRoot "htdocs\VENTAS")
+Write-CleanArcaConfig -VentasPath (Join-Path $payloadRoot "htdocs\VENTAS")
+Copy-Item -LiteralPath $schemaSource -Destination (Join-Path $payloadRoot "htdocs\VENTAS\instalacion_schema.sql") -Force
 
 $rootFiles = @(
     "apache_start.bat",
@@ -250,11 +362,12 @@ $rootFiles = @(
 foreach ($file in $rootFiles) {
     $sourceFile = Join-Path $xamppSource $file
     if (Test-Path -LiteralPath $sourceFile) {
-        Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $stagingDir "xampp82\$file") -Force
+        Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $payloadRoot $file) -Force
     }
 }
 
-New-ShortcutScript -Path (Join-Path $stagingDir "xampp82\crear_accesos.ps1")
+Update-PortableRootPaths -RootPath $payloadRoot -TargetRoot $installRootPath
+New-ShortcutScript -Path (Join-Path $payloadRoot "crear_accesos.ps1")
 
 Write-Host "Compilando launcher local..."
 @'
@@ -288,7 +401,7 @@ class ControlVentasReparaciones
             catch
             {
             }
-            System.Windows.Forms.MessageBox.Show("No se pudo iniciar Ventas. Revise control_ventas_error.log.", "CONTROL VENTAS", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error);
+            System.Windows.Forms.MessageBox.Show("No se pudo iniciar Ventas y Reparaciones. Revise control_ventas_error.log.", "Ventas y Reparaciones", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error);
             return 1;
         }
     }
@@ -300,7 +413,7 @@ class ControlVentasReparaciones
         {
             return dir;
         }
-        return @"C:\xampp82";
+        return @"C:\Ventas y Reparaciones";
     }
 
     static bool IsPortOpen(string host, int port)
@@ -418,14 +531,14 @@ class ControlVentasReparaciones
 
 & $csc /nologo /target:winexe /out:$launcherExe /reference:System.Windows.Forms.dll $launcherSource
 if (-not (Test-Path -LiteralPath $launcherExe)) {
-    throw "No se pudo crear CONTROL VENTAS.exe."
+    throw "No se pudo crear Ventas y Reparaciones.exe."
 }
 
 Write-Host "Comprimiendo payload del instalador..."
 if (Test-Path -LiteralPath $payloadZip) {
     Remove-Item -LiteralPath $payloadZip -Force
 }
-Compress-Archive -Path (Join-Path $stagingDir "xampp82") -DestinationPath $payloadZip -Force -CompressionLevel Optimal
+Compress-Archive -Path $payloadRoot -DestinationPath $payloadZip -Force -CompressionLevel Optimal
 
 Write-Host "Compilando instalador unico..."
 @'
@@ -440,7 +553,7 @@ class InstaladorVentasReparaciones
 {
     static int Main()
     {
-        string destino = @"C:\xampp82";
+        string destino = @"C:\Ventas y Reparaciones";
         string backup = Path.Combine(Path.GetTempPath(), "ventas_reparaciones_backup");
         string payload = Path.Combine(Path.GetTempPath(), "ventas_reparaciones_payload.zip");
 
@@ -461,15 +574,13 @@ class InstaladorVentasReparaciones
 
             ZipFile.ExtractToDirectory(payload, @"C:\");
             RestoreData(destino, backup);
+            InitializeBlankDatabaseIfNeeded(destino, backup);
             CreateShortcuts(destino);
 
             Console.WriteLine("");
             Console.WriteLine("Instalacion terminada.");
-            Console.WriteLine("Use el acceso directo CONTROL VENTAS del Escritorio.");
+            Console.WriteLine("Use el acceso directo Ventas y Reparaciones del Escritorio.");
             Console.WriteLine("No hace falta instalar XAMPP, PHP, MySQL ni Python.");
-            Console.WriteLine("");
-            Console.WriteLine("Presione una tecla para cerrar...");
-            Console.ReadKey();
             return 0;
         }
         catch (Exception ex)
@@ -498,6 +609,42 @@ class InstaladorVentasReparaciones
         CopyFileIfExists(Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "reparaciones.db"), Path.Combine(backup, "reparaciones.db"));
         CopyFileIfExists(Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "comercio_config.json"), Path.Combine(backup, "comercio_config.json"));
         CopyDirIfExists(Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "tickets"), Path.Combine(backup, "tickets"));
+
+        string instalacionXamppAnterior = @"C:\xampp82";
+        if (!Directory.Exists(Path.Combine(backup, "mysql_data")))
+        {
+            CopyDirIfExists(Path.Combine(instalacionXamppAnterior, "mysql", "data"), Path.Combine(backup, "mysql_data"));
+        }
+        if (!Directory.Exists(Path.Combine(backup, "almacenamiento")))
+        {
+            CopyDirIfExists(Path.Combine(instalacionXamppAnterior, "htdocs", "VENTAS", "almacenamiento"), Path.Combine(backup, "almacenamiento"));
+        }
+        if (!File.Exists(Path.Combine(backup, "reparaciones.db")))
+        {
+            CopyFileIfExists(Path.Combine(instalacionXamppAnterior, "htdocs", "VENTAS", "reparaciones_python", "reparaciones.db"), Path.Combine(backup, "reparaciones.db"));
+        }
+        if (!File.Exists(Path.Combine(backup, "comercio_config.json")))
+        {
+            CopyFileIfExists(Path.Combine(instalacionXamppAnterior, "htdocs", "VENTAS", "reparaciones_python", "comercio_config.json"), Path.Combine(backup, "comercio_config.json"));
+        }
+        if (!Directory.Exists(Path.Combine(backup, "tickets")))
+        {
+            CopyDirIfExists(Path.Combine(instalacionXamppAnterior, "htdocs", "VENTAS", "reparaciones_python", "tickets"), Path.Combine(backup, "tickets"));
+        }
+
+        string reparacionesLegacy = @"C:\Reparaciones\reparaciones_python";
+        if (!File.Exists(Path.Combine(backup, "reparaciones.db")))
+        {
+            CopyFileIfExists(Path.Combine(reparacionesLegacy, "reparaciones.db"), Path.Combine(backup, "reparaciones.db"));
+        }
+        if (!File.Exists(Path.Combine(backup, "comercio_config.json")))
+        {
+            CopyFileIfExists(Path.Combine(reparacionesLegacy, "comercio_config.json"), Path.Combine(backup, "comercio_config.json"));
+        }
+        if (!Directory.Exists(Path.Combine(backup, "tickets")))
+        {
+            CopyDirIfExists(Path.Combine(reparacionesLegacy, "tickets"), Path.Combine(backup, "tickets"));
+        }
     }
 
     static void StopLocalServers()
@@ -558,6 +705,100 @@ class InstaladorVentasReparaciones
         CopyDirIfExists(Path.Combine(backup, "tickets"), Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "tickets"));
     }
 
+    static void InitializeBlankDatabaseIfNeeded(string destino, string backup)
+    {
+        if (Directory.Exists(Path.Combine(backup, "mysql_data")))
+        {
+            return;
+        }
+        string schema = Path.Combine(destino, "htdocs", "VENTAS", "instalacion_schema.sql");
+        if (!File.Exists(schema))
+        {
+            return;
+        }
+        StartMySql(destino);
+        string mysql = Path.Combine(destino, "mysql", "bin", "mysql.exe");
+        RunProcess(mysql, "--user=root < \"" + schema + "\"", destino, true);
+    }
+
+    static bool IsPortOpen(string host, int port)
+    {
+        try
+        {
+            using (System.Net.Sockets.TcpClient client = new System.Net.Sockets.TcpClient())
+            {
+                IAsyncResult result = client.BeginConnect(host, port, null, null);
+                bool ok = result.AsyncWaitHandle.WaitOne(500);
+                if (!ok)
+                {
+                    return false;
+                }
+                client.EndConnect(result);
+                return true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static void WaitForPort(string host, int port, int timeoutMs)
+    {
+        int waited = 0;
+        while (waited < timeoutMs)
+        {
+            if (IsPortOpen(host, port))
+            {
+                return;
+            }
+            System.Threading.Thread.Sleep(500);
+            waited += 500;
+        }
+        throw new Exception("No inicio MySQL en el puerto " + port.ToString() + ".");
+    }
+
+    static void StartMySql(string destino)
+    {
+        if (IsPortOpen("127.0.0.1", 3306))
+        {
+            return;
+        }
+        string exe = Path.Combine(destino, "mysql", "bin", "mysqld.exe");
+        string ini = Path.Combine(destino, "mysql", "bin", "my.ini");
+        if (!File.Exists(exe))
+        {
+            throw new Exception("No se encontro mysqld.exe.");
+        }
+        ProcessStartInfo info = new ProcessStartInfo();
+        info.FileName = exe;
+        info.Arguments = "--defaults-file=\"" + ini + "\" --standalone";
+        info.WorkingDirectory = destino;
+        info.UseShellExecute = false;
+        info.CreateNoWindow = true;
+        info.WindowStyle = ProcessWindowStyle.Hidden;
+        Process.Start(info);
+        WaitForPort("127.0.0.1", 3306, 20000);
+    }
+
+    static void RunProcess(string exe, string args, string workingDirectory, bool useShell)
+    {
+        ProcessStartInfo info = new ProcessStartInfo();
+        info.FileName = useShell ? "cmd.exe" : exe;
+        info.Arguments = useShell ? "/c \"" + exe + "\" " + args : args;
+        info.WorkingDirectory = workingDirectory;
+        info.UseShellExecute = false;
+        info.CreateNoWindow = true;
+        using (Process proceso = Process.Start(info))
+        {
+            proceso.WaitForExit();
+            if (proceso.ExitCode != 0)
+            {
+                throw new Exception("No se pudo inicializar la base de datos limpia.");
+            }
+        }
+    }
+
     static void ExtractPayload(string destino)
     {
         Assembly asm = Assembly.GetExecutingAssembly();
@@ -572,7 +813,7 @@ class InstaladorVentasReparaciones
     static void CreateShortcuts(string destino)
     {
         string script = Path.Combine(destino, "crear_accesos.ps1");
-        string launcher = Path.Combine(destino, "CONTROL VENTAS.exe");
+        string launcher = Path.Combine(destino, "Ventas y Reparaciones.exe");
         if (!File.Exists(script) || !File.Exists(launcher))
         {
             return;

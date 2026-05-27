@@ -7,6 +7,7 @@ $proximas = $proximas ?? [];
 $resumen = $resumen ?? [];
 $recibos = $recibos ?? [];
 $saldos_favor = $saldos_favor ?? [];
+$orden_cuentas = $orden_cuentas ?? ["campo" => "vencimiento", "direccion" => "ASC", "defecto_campo" => "vencimiento", "defecto_direccion" => "ASC"];
 
 $fila_cuota = function (array $q, bool $vencida): void { ?>
   <tr class="<?= $vencida ? "cc-row-overdue" : "" ?>">
@@ -48,6 +49,7 @@ $fila_cuota = function (array $q, bool $vencida): void { ?>
     <form method="GET" action="index.php" class="row g-2 align-items-end">
       <input type="hidden" name="c" value="cuentas_corrientes">
       <input type="hidden" name="a" value="index">
+      <input type="hidden" name="direccion" value="<?= htmlspecialchars(strtolower($orden_cuentas["direccion"] ?? "ASC")) ?>">
       <div class="col-md-4">
         <label class="form-label">Buscar</label>
         <input class="form-control" name="buscar" value="<?= htmlspecialchars((string)$buscar) ?>" placeholder="Cliente, venta o fecha">
@@ -97,7 +99,7 @@ $fila_cuota = function (array $q, bool $vencida): void { ?>
     </div>
     <div class="table-responsive">
       <table class="table align-middle admin-table">
-        <thead><tr><th>Cliente / concepto</th><th class="text-center">Cuota</th><th>Vence</th><th class="text-end">Monto</th><th class="text-end">Pendiente</th><th>Acciones</th></tr></thead>
+        <thead><tr><?= orden_tabla_th("Cliente / concepto", "cliente", $orden_cuentas, "texto") ?><th class="text-center">Cuota</th><?= orden_tabla_th("Vence", "fecha", $orden_cuentas, "texto") ?><?= orden_tabla_th("Monto", "monto", $orden_cuentas, "numero") ?><?= orden_tabla_th("Pendiente", "saldo", $orden_cuentas, "numero") ?><th>Acciones</th></tr></thead>
         <tbody>
           <?php foreach ($vencidas as $q) $fila_cuota($q, true); ?>
           <?php if (count($vencidas) === 0): ?>
@@ -114,7 +116,7 @@ $fila_cuota = function (array $q, bool $vencida): void { ?>
     <h5 class="mb-3">Proximos vencimientos</h5>
     <div class="table-responsive">
       <table class="table table-striped align-middle admin-table">
-        <thead><tr><th>Cliente / concepto</th><th class="text-center">Cuota</th><th>Vence</th><th class="text-end">Monto</th><th class="text-end">Pendiente</th><th>Acciones</th></tr></thead>
+        <thead><tr><?= orden_tabla_th("Cliente / concepto", "cliente", $orden_cuentas, "texto") ?><th class="text-center">Cuota</th><?= orden_tabla_th("Vence", "fecha", $orden_cuentas, "texto") ?><?= orden_tabla_th("Monto", "monto", $orden_cuentas, "numero") ?><?= orden_tabla_th("Pendiente", "saldo", $orden_cuentas, "numero") ?><th>Acciones</th></tr></thead>
         <tbody>
           <?php foreach ($proximas as $q) $fila_cuota($q, false); ?>
           <?php if (count($proximas) === 0): ?>

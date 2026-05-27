@@ -23,6 +23,8 @@ class ReparacionesApp(tk.Tk):
         self.busqueda_var = tk.StringVar(value="")
         self.filtro_estado_var = tk.StringVar(value="TODOS")
         self.estado_sistema_var = tk.StringVar(value="Listo")
+        self.orden_columna = "fecha"
+        self.orden_direccion = "DESC"
 
         self._configurar_estilos()
         self._crear_layout()
@@ -311,7 +313,7 @@ class ReparacionesApp(tk.Tk):
         }
 
         for columna in columnas:
-            self.tabla.heading(columna, text=columna.capitalize())
+            self.tabla.heading(columna, text=columna.capitalize(), command=lambda c=columna: self._cambiar_orden(c))
             self.tabla.column(columna, width=anchos[columna], anchor=tk.W)
 
         self.tabla.tag_configure("PENDIENTE", background="#fef9c3")
@@ -413,9 +415,22 @@ class ReparacionesApp(tk.Tk):
                 self._mostrar_estado("Reparacion seleccionada.")
 
     def _cargar_tabla(self):
-        self.reparaciones_cache = self.repositorio.listar()
+        self.reparaciones_cache = self.repositorio.listar(self.orden_columna, self.orden_direccion)
         self._actualizar_tarjetas()
         self._aplicar_filtros()
+
+    def _cambiar_orden(self, columna):
+        mapa = {"ingreso": "fecha", "cliente": "cliente", "codigo": "codigo", "estado": "estado", "precio": "precio", "entrega": "entrega"}
+        orden = mapa.get(columna, "fecha")
+        if self.orden_columna != orden:
+            self.orden_columna = orden
+            self.orden_direccion = "ASC"
+        elif self.orden_direccion == "ASC":
+            self.orden_direccion = "DESC"
+        else:
+            self.orden_columna = "fecha"
+            self.orden_direccion = "DESC"
+        self._cargar_tabla()
 
     def _aplicar_filtros(self):
         for item in self.tabla.get_children():

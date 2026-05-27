@@ -13,6 +13,8 @@ $campos_busqueda = $campos_busqueda ?? [];
     <form method="GET" action="index.php" class="row g-2 align-items-end" data-auto-submit-search="true" data-search-target="#clientesResultados">
       <input type="hidden" name="c" value="clientes">
       <input type="hidden" name="a" value="index">
+      <input type="hidden" name="orden" value="<?= htmlspecialchars($orden_clientes["campo"] ?? "nombre") ?>">
+      <input type="hidden" name="direccion" value="<?= htmlspecialchars(strtolower($orden_clientes["direccion"] ?? "ASC")) ?>">
       <div class="col-lg-5">
         <label class="form-label">Buscar cliente</label>
         <input type="text" class="form-control" name="buscar" value="<?= htmlspecialchars($texto_buscar) ?>" placeholder="Ej: nombre, DNI o teléfono">
@@ -50,14 +52,14 @@ $campos_busqueda = $campos_busqueda ?? [];
         <thead>
           <tr>
             <th>ID</th>
-            <th>Nombre</th>
-            <th>Documento</th>
+            <?= orden_tabla_th("Nombre", "nombre", $orden_clientes ?? [], "texto") ?>
+            <?= orden_tabla_th("Documento", "codigo", $orden_clientes ?? [], "texto") ?>
             <th>IVA</th>
             <th>Lista</th>
             <th>Email</th>
             <th>Teléfono</th>
             <th>Dirección</th>
-            <th>Creado</th>
+            <?= orden_tabla_th("Creado", "fecha", $orden_clientes ?? [], "texto") ?>
             <th style="width: 220px;">Acciones</th>
           </tr>
         </thead>
@@ -106,6 +108,7 @@ $campos_busqueda = $campos_busqueda ?? [];
     if (ok) {
       new DataTable('#tablaClientes', {
         searching: false,
+        ordering: false,
         language: {
           search: "Buscar:",
           lengthMenu: "Mostrar _MENU_",

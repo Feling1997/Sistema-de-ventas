@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . "/../../modelos/CuentaCorriente.php";
+require_once __DIR__ . "/../../modelos/Stock.php";
 
 $logueado = false;
 $usuario = "";
@@ -19,14 +20,63 @@ $icono_cambio_modulo = $seccion_actual === "reparaciones" ? "bi-cash-stack" : "b
 $es_panel_aparte = $es_panel_aparte ?? false;
 $url_volver = $url_volver ?? "index.php?c=ventas&a=inicio";
 $config_navbar = config_sistema_simple();
+$logo_sistema_nav = trim((string)($config_navbar["logo"] ?? ""));
+$logo_sistema_nav_url = "";
+if ($logo_sistema_nav !== "") {
+    if (preg_match('/^https?:\/\//i', $logo_sistema_nav))
+        $logo_sistema_nav_url = $logo_sistema_nav;
+    else {
+        $logo_sistema_nav_path = __DIR__ . "/../../../" . ltrim($logo_sistema_nav, "/\\");
+        $logo_sistema_nav_version = is_file($logo_sistema_nav_path) ? "?v=" . (string)filemtime($logo_sistema_nav_path) : "";
+        $logo_sistema_nav_url = "/VENTAS/" . str_replace([" ", ")", "("], ["%20", "%29", "%28"], ltrim($logo_sistema_nav, "/")) . $logo_sistema_nav_version;
+    }
+}
+$es_configuracion = in_array($controlador_actual, ["configuracion", "configuraciones"], true) && !($controlador_actual === "configuraciones" && $seccion_param === "reparaciones");
+$configuracion_separada = (string)($config_navbar["configuracion_separada"] ?? "1") === "1";
+if ($es_configuracion && $configuracion_separada)
+    $seccion_actual = "configuracion";
+else
+    $seccion_actual = ($controlador_actual === "reparaciones" || ($controlador_actual === "configuraciones" && $seccion_param === "reparaciones")) ? "reparaciones" : "ventas";
+$url_panel_principal = $seccion_actual === "reparaciones" ? "index.php?c=reparaciones&a=index" : ($seccion_actual === "configuracion" ? "index.php?c=configuracion&a=index" : "index.php?c=ventas&a=inicio");
+$url_cambio_modulo = $seccion_actual === "reparaciones" ? "index.php?c=ventas&a=inicio" : "index.php?c=reparaciones&a=index";
+$texto_cambio_modulo = $seccion_actual === "reparaciones" ? "Ventas" : "Reparaciones";
+$icono_cambio_modulo = $seccion_actual === "reparaciones" ? "bi-cash-stack" : "bi-tools";
 $cc_alertas_no_leidas = 0;
+$stock_alertas_resumen = ["total" => 0, "pendientes" => 0, "leidas" => 0];
+$menu_alertas_cache_segundos = 45;
 
 if (isset($_SESSION["usuario_logueado"])) {
     $logueado = true;
     $usuario = (string)($_SESSION["usuario_logueado"]["usuario"] ?? "");
     $rol = (string)($_SESSION["usuario_logueado"]["rol"] ?? "");
     $id_usuario = (int)($_SESSION["usuario_logueado"]["id"] ?? 0);
-    $cc_alertas_no_leidas = CuentaCorriente::cantidad_vencidas_no_leidas($id_usuario);
+    $cache_alertas = $_SESSION["menu_alertas_cache"] ?? [];
+    $cache_key = "u" . $id_usuario;
+    $cache_valido = is_array($cache_alertas)
+        && isset($cache_alertas[$cache_key])
+        && is_array($cache_alertas[$cache_key])
+        && (time() - (int)($cache_alertas[$cache_key]["ts"] ?? 0)) < $menu_alertas_cache_segundos;
+    if ($cache_valido) {
+        $cc_alertas_no_leidas = (int)($cache_alertas[$cache_key]["cc"] ?? 0);
+        $stock_cache = $cache_alertas[$cache_key]["stock"] ?? [];
+        if (is_array($stock_cache))
+            $stock_alertas_resumen = [
+                "total" => (int)($stock_cache["total"] ?? 0),
+                "pendientes" => (int)($stock_cache["pendientes"] ?? 0),
+                "leidas" => (int)($stock_cache["leidas"] ?? 0)
+            ];
+    } else {
+        $cc_alertas_no_leidas = CuentaCorriente::cantidad_vencidas_no_leidas($id_usuario);
+        $stock_alertas_resumen = Stock::resumen_alertas_stock_bajo($id_usuario);
+        if (!is_array($cache_alertas))
+            $cache_alertas = [];
+        $cache_alertas[$cache_key] = [
+            "ts" => time(),
+            "cc" => $cc_alertas_no_leidas,
+            "stock" => $stock_alertas_resumen
+        ];
+        $_SESSION["menu_alertas_cache"] = $cache_alertas;
+    }
     $permitidos = menu_modulos_permitidos_por_rol($rol);
     $claves_visibles = menu_obtener_preferencias_usuario($id_usuario, $rol);
     if (isset($permitidos["inicio"]))
@@ -130,7 +180,7 @@ $reparaciones_acciones = [
     ],
 ];
 
-$current_section_modulos = $seccion_actual === "reparaciones" ? $reparaciones_acciones : $ventas_modulos;
+$current_section_modulos = $seccion_actual === "reparaciones" ? $reparaciones_acciones : ($seccion_actual === "configuracion" ? [] : $ventas_modulos);
 $modulo_reparaciones_accion = null;
 if (isset($modulos_config["reparaciones"]) && (string)($config_navbar["mostrar_reparaciones"] ?? "1") === "1") {
     $modulo_reparaciones_accion = $modulos_config["reparaciones"];
@@ -149,9 +199,13 @@ if (isset($current_section_modulos["reparaciones"]))
       <div class="app-navbar-left">
         <a class="navbar-brand app-brand" href="<?= htmlspecialchars($url_panel_principal) ?>">
           <span class="app-brand-mark">
-            <i class="bi bi-cpu"></i>
+            <?php if ($logo_sistema_nav_url !== ""): ?>
+              <img src="<?= htmlspecialchars($logo_sistema_nav_url) ?>" alt="Logo">
+            <?php else: ?>
+              <i class="bi bi-cpu"></i>
+            <?php endif; ?>
           </span>
-          <span class="app-brand-text"><?= htmlspecialchars((string)($config_navbar["navbar_marca_texto"] ?? "MI COMERCIO")) ?></span>
+          <span class="app-brand-text"><?= htmlspecialchars((string)($config_navbar["nombre_comercio"] ?? "MI COMERCIO")) ?></span>
         </a>
       </div>
 
@@ -175,10 +229,16 @@ if (isset($current_section_modulos["reparaciones"]))
               <?php endif; ?>
             <?php else: ?>
               <?php $es_cta_cte = (string)($modulo["clave"] ?? $clave_modulo) === "cuentas_corrientes"; ?>
-              <a class="menu-icono menu-icono-inline<?= $es_cta_cte && $cc_alertas_no_leidas > 0 ? " menu-icono-alerta" : "" ?>" href="<?= htmlspecialchars($modulo["url"]) ?>">
+              <?php $es_stock = (string)($modulo["clave"] ?? $clave_modulo) === "stock"; ?>
+              <?php $stock_pendientes = (int)($stock_alertas_resumen["pendientes"] ?? 0); ?>
+              <?php $stock_total_alertas = (int)($stock_alertas_resumen["total"] ?? 0); ?>
+              <a class="menu-icono menu-icono-inline<?= $es_cta_cte && $cc_alertas_no_leidas > 0 ? " menu-icono-alerta" : "" ?><?= $es_stock && $stock_pendientes > 0 ? " menu-icono-alerta menu-icono-stock-alerta" : "" ?>" href="<?= htmlspecialchars($modulo["url"]) ?>">
                 <i class="bi <?= htmlspecialchars($modulo["icono"]) ?> <?= htmlspecialchars($modulo["clase"]) ?>"></i>
                 <?php if ($es_cta_cte && $cc_alertas_no_leidas > 0): ?>
                   <span class="nav-alert-badge"><?= $cc_alertas_no_leidas > 99 ? "99+" : (int)$cc_alertas_no_leidas ?></span>
+                <?php endif; ?>
+                <?php if ($es_stock && $stock_total_alertas > 0): ?>
+                  <span class="nav-alert-badge badge-stock-alerta <?= $stock_pendientes > 0 ? "is-pending" : "is-read" ?>"><?= ($stock_pendientes > 0 ? $stock_pendientes : $stock_total_alertas) > 99 ? "99+" : (int)($stock_pendientes > 0 ? $stock_pendientes : $stock_total_alertas) ?></span>
                 <?php endif; ?>
                 <span><?= htmlspecialchars($modulo["texto"]) ?></span>
               </a>
@@ -189,14 +249,20 @@ if (isset($current_section_modulos["reparaciones"]))
 
       <?php if ($logueado): ?>
         <div class="app-navbar-user">
+          <?php if ($seccion_actual === "configuracion"): ?>
+            <a class="btn btn-sm btn-outline-light app-switch-near-exit" href="index.php?c=ventas&a=inicio">
+              <i class="bi bi-cash-stack"></i>
+              <span>Ventas</span>
+            </a>
+          <?php endif; ?>
           <?php if ($modulo_reparaciones_accion !== null): ?>
             <a class="btn btn-sm btn-outline-light app-switch-near-exit" href="<?= htmlspecialchars($modulo_reparaciones_accion["url"]) ?>">
               <i class="bi <?= htmlspecialchars($modulo_reparaciones_accion["icono"]) ?>"></i>
               <span><?= htmlspecialchars((string)($modulo_reparaciones_accion["texto"] ?? "Reparaciones")) ?></span>
             </a>
           <?php endif; ?>
-          <?php if ($rol === "ADMIN" && (string)($config_navbar["navbar_mostrar_config"] ?? "1") === "1"): ?>
-            <a class="btn btn-sm btn-outline-light app-nav-action" href="index.php?c=configuraciones&a=sistema<?= $seccion_actual === "reparaciones" ? "&seccion=reparaciones" : "" ?>">
+          <?php if ($seccion_actual !== "configuracion" && $rol === "ADMIN" && (string)($config_navbar["navbar_mostrar_config"] ?? "1") === "1"): ?>
+            <a class="btn btn-sm btn-outline-light app-nav-action" href="index.php?c=configuracion&a=index">
               <i class="bi bi-gear-fill nav-icon-config"></i>
               <span>Config</span>
             </a>

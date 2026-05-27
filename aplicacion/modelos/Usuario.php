@@ -18,13 +18,13 @@ class Usuario{
         }
     }
 
-    public static function listar_todos(): array{
+    public static function listar_todos(string $orden_sql = "usuario ASC"): array{
         self::asegurar_columnas();
         $lista=[];
         $pdo=obtener_pdo();
         if($pdo!==null){
             try{
-                $sql="SELECT id, usuario, rol, activo, creado_en, permisos FROM usuarios ORDER BY id DESC";
+                $sql="SELECT id, usuario, rol, activo, creado_en, permisos FROM usuarios ORDER BY " . $orden_sql . ", id ASC";
                 $st=$pdo->prepare($sql);
                 $st->execute();
                 $rows=$st->fetchAll();

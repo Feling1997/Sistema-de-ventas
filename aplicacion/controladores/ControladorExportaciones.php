@@ -215,14 +215,26 @@ class ControladorExportaciones {
         }
         $tmp = (string)($_FILES["archivo_articulos"]["tmp_name"] ?? "");
         $nombre_archivo = (string)($_FILES["archivo_articulos"]["name"] ?? "");
-        if (strtolower(pathinfo($nombre_archivo, PATHINFO_EXTENSION)) === "xlsx" && !class_exists("ZipArchive")) {
-            flash_error("Para importar .xlsx falta habilitar ZIP en PHP. Guarda el Excel como CSV y volve a importarlo.");
+        $importar_disponibles = (int)obtener_post("importar_disponibles", 1) === 1;
+        $crear_productos = (int)obtener_post("crear_productos", 0) === 1;
+        $extension = strtolower(pathinfo($nombre_archivo, PATHINFO_EXTENSION));
+        if (in_array($extension, ["xlsx", "xlsm"], true) && !class_exists("ZipArchive")) {
+            flash_error("Para importar ." . $extension . " falta habilitar ZIP en PHP. Guarda el Excel como CSV y volve a importarlo.");
             redirigir("index.php?c=exportaciones&a=index");
             return;
         }
-        $resultado = $this->importar_csv_articulos_completo($tmp, $nombre_archivo);
+        $resultado = $this->importar_csv_articulos_completo($tmp, $nombre_archivo, $importar_disponibles, $crear_productos);
         if (!empty($resultado["columnas_sin_lista"]))
             flash_error("Columnas de precios sin lista cargada: " . implode(", ", $resultado["columnas_sin_lista"]) . ". Crealas en Listas de precios o corregi el nombre de la columna.");
+        if (!empty($resultado["productos_no_encontrados"])) {
+            $muestra = array_slice(array_unique($resultado["productos_no_encontrados"]), 0, 12);
+            flash_error("Productos no encontrados, no se crearon: " . implode(", ", $muestra) . (count($resultado["productos_no_encontrados"]) > 12 ? "..." : "") . ". Marca Crear productos que no existen si queres cargarlos desde el archivo.");
+        }
+        if (!empty($resultado["requiere_confirmacion"])) {
+            flash_error("No se importo nada porque el archivo tiene columnas sin lista cargada. Marca la opcion de importar los datos disponibles si queres cargar solo las listas que coinciden.");
+            redirigir("index.php?c=exportaciones&a=index");
+            return;
+        }
         flash_ok(
             "Importacion finalizada. Productos nuevos: " . $resultado["productos_creados"] .
             " | Productos actualizados: " . $resultado["productos_actualizados"] .
@@ -234,7 +246,7 @@ class ControladorExportaciones {
         redirigir("index.php?c=exportaciones&a=index");
     }
 
-    private function importar_csv_articulos_completo(string $archivo, string $nombre_archivo = ""): array {
+    private function importar_csv_articulos_completo(string $archivo, string $nombre_archivo = "", bool $importar_disponibles = true, bool $crear_productos = false): array {
         $res = [
             "productos_creados" => 0,
             "productos_actualizados" => 0,
@@ -242,7 +254,9 @@ class ControladorExportaciones {
             "sin_cambios" => 0,
             "omitidos" => 0,
             "codigos_generados" => 0,
+            "productos_no_encontrados" => [],
             "columnas_sin_lista" => [],
+            "requiere_confirmacion" => false,
         ];
         $pdo = obtener_pdo();
         if ($pdo === null)
@@ -261,6 +275,10 @@ class ControladorExportaciones {
         $listas_por_nombre = $this->listas_importacion_por_nombre();
         $columnas = $this->mapear_columnas_importacion($headers, $headers_originales, $listas_por_nombre);
         $res["columnas_sin_lista"] = $columnas["columnas_sin_lista"];
+        if (!$importar_disponibles && count($res["columnas_sin_lista"]) > 0) {
+            $res["requiere_confirmacion"] = true;
+            return $res;
+        }
         if ($columnas["nombre"] < 0 && $columnas["codigo"] < 0) {
             $res["omitidos"]++;
             return $res;
@@ -269,6 +287,7 @@ class ControladorExportaciones {
             $res["omitidos"] = count($filas);
             return $res;
         }
+        $id_lista_costo = $this->id_lista_costo_importacion();
 
         try {
             $pdo->beginTransaction();
@@ -280,70 +299,73 @@ class ControladorExportaciones {
                     $res["omitidos"]++;
                     continue;
                 }
-                if ($nombre === "")
-                    $nombre = "Articulo " . $codigo;
-
-                $unidad = $this->valor_por_indice($row, $columnas["unidad"]);
-                if ($unidad === "")
-                    $unidad = "u";
-                $cantidad = parsear_numero_form($this->valor_por_indice($row, $columnas["stock"]), 0);
-                $stock_minimo = parsear_numero_form($this->valor_por_indice($row, $columnas["stock_minimo"]), 0);
-                $stock_maximo = parsear_numero_form($this->valor_por_indice($row, $columnas["stock_maximo"]), 0);
-                $costo = parsear_numero_form($this->valor_por_indice($row, $columnas["costo"]), 0);
-                $factor = parsear_numero_form($this->valor_por_indice($row, $columnas["factor"]), 1);
-                $ganancia = parsear_numero_form($this->valor_por_indice($row, $columnas["ganancia"]), 0);
-                $activo_raw = strtolower($this->valor_por_indice($row, $columnas["activo"]));
-                $activo = in_array($activo_raw, ["0", "no", "baja", "inactivo"], true) ? 0 : 1;
 
                 $producto = $codigo !== "" ? $this->buscar_producto_por_codigo_importacion($codigo) : null;
-                if ($producto === null)
+                if ($producto === null && $nombre !== "")
                     $producto = $this->buscar_producto_por_nombre_importacion($nombre);
-                if ($codigo === "") {
-                    $codigo_existente = $producto !== null ? preg_replace('/\D+/', '', (string)($producto["cod_barras"] ?? "")) : "";
-                    if ($codigo_existente !== "")
-                        $codigo = $codigo_existente;
-                    else {
+                if ($producto === null) {
+                    if (!$crear_productos || $nombre === "") {
+                        $res["productos_no_encontrados"][] = $codigo !== "" ? (($nombre !== "" ? $nombre : "Sin descripcion") . " [" . $codigo . "]") : $nombre;
+                        $res["omitidos"]++;
+                        continue;
+                    }
+                    if ($codigo === "") {
                         $codigo = $this->generar_codigo_barras_importacion();
                         $res["codigos_generados"]++;
                     }
-                }
-
-                $id_stock = $producto !== null ? (int)($producto["id_stock"] ?? 0) : 0;
-                if ($id_stock <= 0)
-                    $id_stock = $this->buscar_stock_por_nombre_importacion($nombre);
-                if ($id_stock > 0)
-                    $this->actualizar_stock_importacion($id_stock, $nombre, $unidad, $cantidad, $costo, $activo, $stock_minimo, $stock_maximo);
-                else
-                    $id_stock = Stock::crear_retornar_id($nombre, $unidad, $cantidad, $costo, $activo, $stock_minimo, $stock_maximo);
-
-                $precio_publico = $this->precio_publico_importacion($row, $columnas);
-                if ($precio_publico <= 0 && $costo > 0)
-                    $precio_publico = Producto::calcular_precio_final($costo, $factor, $ganancia);
-
-                if ($producto === null) {
-                    $id_producto = Producto::crear_retornar_id($nombre, $codigo, $id_stock > 0 ? $id_stock : null, $factor, $ganancia, $precio_publico, $activo);
+                    $unidad = $this->valor_por_indice($row, $columnas["unidad"]);
+                    if ($unidad === "")
+                        $unidad = "u";
+                    $cantidad = max(0, $this->parsear_numero_importacion($this->valor_por_indice($row, $columnas["stock"]), 0));
+                    $costo = $this->precio_desde_lista_importacion($row, $columnas, $id_lista_costo);
+                    if ($costo <= 0)
+                        $costo = $this->parsear_numero_importacion($this->valor_por_indice($row, $columnas["costo"]), 0);
+                    $precio_final = $this->primer_precio_importacion($row, $columnas);
+                    if ($precio_final <= 0)
+                        $precio_final = $costo;
+                    $id_stock = Stock::crear_retornar_id($nombre, $unidad, $cantidad, $costo, 1, 0, 0);
+                    $id_producto = Producto::crear_retornar_id($nombre, $codigo, $id_stock > 0 ? $id_stock : null, 1, 0, $precio_final, 1);
                     if ($id_producto <= 0) {
+                        $res["productos_no_encontrados"][] = $codigo !== "" ? ($nombre . " [" . $codigo . "]") : $nombre;
                         $res["omitidos"]++;
                         continue;
                     }
                     $res["productos_creados"]++;
                 } else {
+                    if ($codigo === "") {
+                        $codigo_existente = preg_replace('/\D+/', '', (string)($producto["cod_barras"] ?? "")) ?? "";
+                        if ($codigo_existente !== "")
+                            $codigo = $codigo_existente;
+                        else {
+                            $codigo = $this->generar_codigo_barras_importacion();
+                            $res["codigos_generados"]++;
+                        }
+                    }
+
                     $id_producto = (int)$producto["id"];
-                    $this->actualizar_producto_importacion($id_producto, $nombre, $codigo, $id_stock > 0 ? $id_stock : null, $factor, $ganancia, $precio_publico, $activo);
+                    if ($codigo !== preg_replace('/\D+/', '', (string)($producto["cod_barras"] ?? "")))
+                        $this->actualizar_codigo_producto_importacion($id_producto, $codigo);
                     $res["productos_actualizados"]++;
                 }
 
+                $costo_importado = $this->precio_desde_lista_importacion($row, $columnas, $id_lista_costo);
+                if ($costo_importado > 0 && $producto !== null)
+                    $this->actualizar_costo_stock_producto_importacion($producto, $costo_importado);
+
                 $precios_cargados = 0;
                 foreach ($columnas["listas"] as $idx => $id_lista) {
-                    $precio = parsear_numero_form($this->valor_por_indice($row, $idx), 0);
+                    $precio = $this->parsear_numero_importacion($this->valor_por_indice($row, $idx), 0);
                     if ($precio <= 0)
                         continue;
-                    if (ListaPrecio::guardar_precio_producto_origen($id_producto, $id_lista, 0, $precio, "importacion_excel")) {
+                    $porcentaje = 0.0;
+                    if ((int)$id_lista !== $id_lista_costo && $costo_importado > 0)
+                        $porcentaje = (($precio / $costo_importado) - 1) * 100;
+                    if (ListaPrecio::guardar_precio_producto_origen($id_producto, $id_lista, $porcentaje, $precio, "importacion_excel")) {
                         $precios_cargados++;
                         $res["precios_cargados"]++;
                     }
                 }
-                if ($precios_cargados === 0 && $producto !== null)
+                if ($precios_cargados === 0)
                     $res["sin_cambios"]++;
             }
             $pdo->commit();
@@ -357,7 +379,7 @@ class ControladorExportaciones {
 
     private function leer_filas_importacion(string $archivo, string $nombre_archivo = ""): array {
         $ext = strtolower(pathinfo($nombre_archivo, PATHINFO_EXTENSION));
-        if ($ext === "xlsx") {
+        if (in_array($ext, ["xlsx", "xlsm"], true)) {
             $filas = $this->leer_xlsx_simple($archivo);
             if (count($filas) > 0)
                 return $filas;
@@ -477,6 +499,7 @@ class ControladorExportaciones {
 
     private function header_clave_importacion(string $header): string {
         $header = strtolower(trim($header));
+        $header = str_replace("mayotista", "mayorista", $header);
         $header = str_replace(["á", "é", "í", "ó", "ú", "ñ"], ["a", "e", "i", "o", "u", "n"], $header);
         $header = preg_replace('/[^a-z0-9]+/', ' ', $header) ?? $header;
         return trim(preg_replace('/\s+/', ' ', $header) ?? $header);
@@ -490,6 +513,24 @@ class ControladorExportaciones {
                 $res[$clave] = (int)$lista["id"];
         }
         return $res;
+    }
+
+    private function claves_posibles_lista_importacion(string $nombre_columna): array {
+        $base = trim($nombre_columna);
+        $variantes = [
+            $base,
+            preg_replace('/^lista\s+/i', '', $base) ?? $base,
+            preg_replace('/^precio\s+/i', '', $base) ?? $base,
+            preg_replace('/^precio\s+de\s+/i', '', $base) ?? $base,
+            preg_replace('/^precio\s+lista\s+/i', '', $base) ?? $base,
+        ];
+        $claves = [];
+        foreach ($variantes as $variante) {
+            $clave = $this->header_clave_importacion((string)$variante);
+            if ($clave !== "")
+                $claves[] = $clave;
+        }
+        return array_values(array_unique($claves));
     }
 
     private function mapear_columnas_importacion(array $headers, array $headers_originales, array $listas_por_nombre): array {
@@ -552,15 +593,11 @@ class ControladorExportaciones {
             if ($clave === "" || in_array($clave, ["categoria", "rubro", "familia", "marca", "proveedor", "observacion", "observaciones"], true))
                 continue;
             $nombre_columna = trim((string)($headers_originales[$idx] ?? $header));
-            $nombre_lista = preg_replace('/^precio\s+/i', '', $nombre_columna) ?? $nombre_columna;
-            $nombre_lista = preg_replace('/^lista\s+/i', '', $nombre_lista) ?? $nombre_lista;
-            $nombre_lista = trim($nombre_lista);
-            $clave_lista = $this->header_clave_importacion($nombre_lista);
-            if ($clave_lista === "")
-                continue;
-            if (isset($listas_por_nombre[$clave_lista])) {
-                $map["listas"][$idx] = (int)$listas_por_nombre[$clave_lista];
-                continue;
+            foreach ($this->claves_posibles_lista_importacion($nombre_columna) as $clave_lista) {
+                if (isset($listas_por_nombre[$clave_lista])) {
+                    $map["listas"][$idx] = (int)$listas_por_nombre[$clave_lista];
+                    continue 2;
+                }
             }
             $map["columnas_sin_lista"][] = $nombre_columna;
         }
@@ -574,14 +611,38 @@ class ControladorExportaciones {
         return trim((string)$row[$idx]);
     }
 
-    private function precio_publico_importacion(array $row, array $columnas): float {
-        foreach ($columnas["listas"] as $idx => $nombre_lista) {
-            $clave = $this->header_clave_importacion((string)$nombre_lista);
-            if (in_array($clave, ["publico", "precio", "precio publico", "venta"], true))
-                return parsear_numero_form($this->valor_por_indice($row, (int)$idx), 0);
+    private function parsear_numero_importacion(string $valor, float $defecto = 0.0): float {
+        $texto = trim($valor);
+        if ($texto === "")
+            return $defecto;
+        $texto = preg_replace('/[^0-9,.\-]+/', '', $texto) ?? "";
+        if ($texto === "" || $texto === "-")
+            return $defecto;
+        return parsear_numero_form($texto, $defecto);
+    }
+
+    private function id_lista_costo_importacion(): int {
+        foreach (ListaPrecio::listar(true) as $lista) {
+            if ($this->header_clave_importacion((string)($lista["nombre"] ?? "")) === "costo")
+                return (int)$lista["id"];
         }
-        foreach ($columnas["listas"] as $idx => $nombre_lista) {
-            $precio = parsear_numero_form($this->valor_por_indice($row, (int)$idx), 0);
+        return 0;
+    }
+
+    private function precio_desde_lista_importacion(array $row, array $columnas, int $id_lista): float {
+        if ($id_lista <= 0)
+            return 0.0;
+        foreach ($columnas["listas"] as $idx => $lista_columna) {
+            if ((int)$lista_columna !== $id_lista)
+                continue;
+            return $this->parsear_numero_importacion($this->valor_por_indice($row, (int)$idx), 0);
+        }
+        return 0.0;
+    }
+
+    private function primer_precio_importacion(array $row, array $columnas): float {
+        foreach ($columnas["listas"] as $idx => $_id_lista) {
+            $precio = $this->parsear_numero_importacion($this->valor_por_indice($row, (int)$idx), 0);
             if ($precio > 0)
                 return $precio;
         }
@@ -643,12 +704,23 @@ class ControladorExportaciones {
         $st->execute([$nombre, $unidad, $cantidad, $stock_minimo, $stock_maximo, $costo, $activo, $id_stock]);
     }
 
-    private function actualizar_producto_importacion(int $id_producto, string $nombre, string $codigo, ?int $id_stock, float $factor, float $ganancia, float $precio_final, int $activo): void {
+    private function actualizar_codigo_producto_importacion(int $id_producto, string $codigo): void {
         $pdo = obtener_pdo();
         if ($pdo === null || $id_producto <= 0)
             return;
-        $st = $pdo->prepare("UPDATE productos SET nombre = ?, cod_barras = ?, id_stock = ?, factor_conversion = ?, ganancia = ?, precio_final = ?, activo = ? WHERE id = ?");
-        $st->execute([$nombre, $codigo, $id_stock, $factor, $ganancia, $precio_final, $activo, $id_producto]);
+        $st = $pdo->prepare("UPDATE productos SET cod_barras = ? WHERE id = ?");
+        $st->execute([$codigo, $id_producto]);
+    }
+
+    private function actualizar_costo_stock_producto_importacion(array $producto, float $costo): void {
+        $id_stock = (int)($producto["id_stock"] ?? 0);
+        if ($id_stock <= 0 || $costo <= 0)
+            return;
+        $pdo = obtener_pdo();
+        if ($pdo === null)
+            return;
+        $st = $pdo->prepare("UPDATE stock SET precio_costo = ? WHERE id = ?");
+        $st->execute([$costo, $id_stock]);
     }
 
     private function importar_csv_balanza(string $archivo, int $id_lista): array {

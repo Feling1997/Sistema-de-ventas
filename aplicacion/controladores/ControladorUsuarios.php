@@ -22,7 +22,13 @@ class ControladorUsuarios{
 
     public function index():void{
         if($this->permiso_admin()){
-            $usuarios=Usuario::listar_todos();
+            $orden_usuarios = orden_parametros([
+                "usuario" => "usuario",
+                "nombre" => "usuario",
+                "estado" => "activo",
+                "fecha" => "creado_en"
+            ], "usuario", "ASC");
+            $usuarios=Usuario::listar_todos($orden_usuarios["sql"]);
             $texto_buscar = trim((string)obtener_get("buscar", ""));
             $campo_buscar = trim((string)obtener_get("campo", "todos"));
             $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));

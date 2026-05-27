@@ -34,15 +34,15 @@
         <thead>
           <tr>
             <th>ID</th>
-            <th>Nombre</th>
-            <th>Estado</th>
+            <?= orden_tabla_th("Nombre", "nombre", $orden_listas ?? [], "texto") ?>
+            <?= orden_tabla_th("Estado", "estado", $orden_listas ?? [], "texto") ?>
             <th style="width: 280px;">Editar</th>
             <th style="width: 90px;">Eliminar</th>
           </tr>
         </thead>
         <tbody>
           <?php foreach ($listas as $lista): ?>
-            <?php $es_base = ListaPrecio::es_lista_costo($lista) || ListaPrecio::es_lista_publico($lista); ?>
+            <?php $es_base = ListaPrecio::es_lista_costo($lista); ?>
             <tr>
               <td><?= (int)$lista["id"] ?></td>
               <td><?= htmlspecialchars($lista["nombre"] ?? "") ?></td>
