@@ -374,6 +374,7 @@ Write-Host "Compilando launcher local..."
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 
@@ -383,13 +384,17 @@ class ControlVentasReparaciones
     {
         string root = DetectRoot();
         string url = "http://localhost/VENTAS/publico/index.php?c=ventas&a=inicio";
+        Process mysql = null;
+        Process apache = null;
         try
         {
-            StartMySql(root);
-            StartApache(root);
+            StopLocalProcessesFromRoot(root);
+            StopPort(8765);
+            mysql = StartMySql(root);
+            apache = StartApache(root);
             StartReparaciones(root);
             WaitForPort("127.0.0.1", 80, 15000);
-            OpenBrowser(url);
+            OpenBrowserAppAndWait(root, url);
             return 0;
         }
         catch (Exception ex)
@@ -403,6 +408,13 @@ class ControlVentasReparaciones
             }
             System.Windows.Forms.MessageBox.Show("No se pudo iniciar Ventas y Reparaciones. Revise control_ventas_error.log.", "Ventas y Reparaciones", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error);
             return 1;
+        }
+        finally
+        {
+            StopProcess(apache);
+            StopProcess(mysql);
+            StopPort(8765);
+            StopLocalProcessesFromRoot(root);
         }
     }
 
@@ -453,11 +465,11 @@ class ControlVentasReparaciones
         throw new Exception("No inicio el servidor local en el puerto " + port.ToString() + ".");
     }
 
-    static void StartMySql(string root)
+    static Process StartMySql(string root)
     {
         if (IsPortOpen("127.0.0.1", 3306))
         {
-            return;
+            return null;
         }
 
         string exe = Path.Combine(root, "mysql", "bin", "mysqld.exe");
@@ -474,15 +486,16 @@ class ControlVentasReparaciones
         info.UseShellExecute = false;
         info.CreateNoWindow = true;
         info.WindowStyle = ProcessWindowStyle.Hidden;
-        Process.Start(info);
+        Process proceso = Process.Start(info);
         WaitForPort("127.0.0.1", 3306, 20000);
+        return proceso;
     }
 
-    static void StartApache(string root)
+    static Process StartApache(string root)
     {
         if (IsPortOpen("127.0.0.1", 80))
         {
-            return;
+            return null;
         }
 
         string exe = Path.Combine(root, "apache", "bin", "httpd.exe");
@@ -498,8 +511,9 @@ class ControlVentasReparaciones
         info.UseShellExecute = false;
         info.CreateNoWindow = true;
         info.WindowStyle = ProcessWindowStyle.Hidden;
-        Process.Start(info);
+        Process proceso = Process.Start(info);
         WaitForPort("127.0.0.1", 80, 20000);
+        return proceso;
     }
 
     static void StartReparaciones(string root)
@@ -519,12 +533,140 @@ class ControlVentasReparaciones
         Process.Start(info);
     }
 
-    static void OpenBrowser(string url)
+    static void OpenBrowserAppAndWait(string root, string url)
+    {
+        string browser = FindBrowser();
+        if (browser == "")
+        {
+            ProcessStartInfo fallback = new ProcessStartInfo();
+            fallback.FileName = url;
+            fallback.UseShellExecute = true;
+            Process.Start(fallback);
+            System.Windows.Forms.MessageBox.Show("Cuando termine de usar el sistema, presione Aceptar para cerrar los servidores locales.", "Ventas y Reparaciones", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
+            return;
+        }
+
+        string profile = Path.Combine(root, "browser_profile");
+        Directory.CreateDirectory(profile);
+        ProcessStartInfo info = new ProcessStartInfo();
+        info.FileName = browser;
+        info.Arguments = "--app=\"" + url + "\" --user-data-dir=\"" + profile + "\" --no-first-run --disable-background-mode";
+        info.UseShellExecute = false;
+        Process proceso = Process.Start(info);
+        if (proceso != null)
+        {
+            proceso.WaitForExit();
+        }
+    }
+
+    static string FindBrowser()
+    {
+        string[] candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft", "Edge", "Application", "msedge.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google", "Chrome", "Application", "chrome.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Google", "Chrome", "Application", "chrome.exe")
+        };
+        foreach (string path in candidates)
+        {
+            if (File.Exists(path))
+            {
+                return path;
+            }
+        }
+        return "";
+    }
+
+    static void StopProcess(Process proceso)
+    {
+        if (proceso == null)
+        {
+            return;
+        }
+        try
+        {
+            if (!proceso.HasExited)
+            {
+                proceso.Kill();
+                proceso.WaitForExit(5000);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    static void StopPort(int port)
     {
         ProcessStartInfo info = new ProcessStartInfo();
-        info.FileName = url;
-        info.UseShellExecute = true;
-        Process.Start(info);
+        info.FileName = "netstat.exe";
+        info.Arguments = "-ano";
+        info.UseShellExecute = false;
+        info.CreateNoWindow = true;
+        info.RedirectStandardOutput = true;
+
+        using (Process proceso = Process.Start(info))
+        {
+            string salida = proceso.StandardOutput.ReadToEnd();
+            proceso.WaitForExit();
+            string marca = ":" + port.ToString();
+            foreach (string linea in salida.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!linea.Contains(marca) || !linea.Contains("LISTENING"))
+                {
+                    continue;
+                }
+                string[] partes = linea.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+                if (partes.Length < 5)
+                {
+                    continue;
+                }
+                int pid;
+                if (int.TryParse(partes[4], out pid))
+                {
+                    try
+                    {
+                        Process.GetProcessById(pid).Kill();
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+    }
+
+    static void StopLocalProcessesFromRoot(string root)
+    {
+        string reparaciones = Path.Combine(root, "htdocs", "VENTAS", "reparaciones_python");
+        string[] names = new[] { "httpd", "mysqld", "python", "pythonw" };
+        foreach (Process proceso in Process.GetProcesses())
+        {
+            try
+            {
+                if (!names.Any(n => proceso.ProcessName.Equals(n, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+                string ruta = "";
+                try
+                {
+                    ruta = proceso.MainModule != null ? proceso.MainModule.FileName : "";
+                }
+                catch
+                {
+                }
+                if (ruta.StartsWith(root, StringComparison.OrdinalIgnoreCase) || ruta.StartsWith(reparaciones, StringComparison.OrdinalIgnoreCase))
+                {
+                    proceso.Kill();
+                    proceso.WaitForExit(5000);
+                }
+            }
+            catch
+            {
+            }
+        }
     }
 }
 '@ | Set-Content -LiteralPath $launcherSource -Encoding ASCII
@@ -563,13 +705,13 @@ class InstaladorVentasReparaciones
             Console.WriteLine("Instalando Ventas y Reparaciones...");
             Console.WriteLine("Destino: " + destino);
 
-            StopLocalServers();
+            StopLocalServers(destino);
             BackupData(destino, backup);
             ExtractPayload(payload);
 
             if (Directory.Exists(destino))
             {
-                Directory.Delete(destino, true);
+                DeleteDirectoryWithRetries(destino);
             }
 
             ZipFile.ExtractToDirectory(payload, @"C:\");
@@ -647,11 +789,12 @@ class InstaladorVentasReparaciones
         }
     }
 
-    static void StopLocalServers()
+    static void StopLocalServers(string destino)
     {
         StopPort(80);
         StopPort(3306);
-        System.Threading.Thread.Sleep(1500);
+        StopProcessesFromRoots(new[] { destino, @"C:\xampp82" });
+        System.Threading.Thread.Sleep(2500);
     }
 
     static void StopPort(int port)
@@ -692,6 +835,91 @@ class InstaladorVentasReparaciones
                     {
                     }
                 }
+            }
+        }
+    }
+
+    static void StopProcessesFromRoots(string[] roots)
+    {
+        string[] names = new[] { "httpd", "mysqld", "Ventas y Reparaciones", "CONTROL VENTAS" };
+        foreach (Process proceso in Process.GetProcesses())
+        {
+            try
+            {
+                if (!names.Any(n => proceso.ProcessName.Equals(n, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                string ruta = "";
+                try
+                {
+                    ruta = proceso.MainModule != null ? proceso.MainModule.FileName : "";
+                }
+                catch
+                {
+                }
+
+                if (ruta == "" || roots.Any(r => ruta.StartsWith(r, StringComparison.OrdinalIgnoreCase)))
+                {
+                    proceso.Kill();
+                    proceso.WaitForExit(5000);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    static void DeleteDirectoryWithRetries(string path)
+    {
+        Exception last = null;
+        for (int i = 0; i < 6; i++)
+        {
+            try
+            {
+                if (!Directory.Exists(path))
+                {
+                    return;
+                }
+                ClearAttributes(path);
+                Directory.Delete(path, true);
+                return;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                System.Threading.Thread.Sleep(1500);
+            }
+        }
+        throw last;
+    }
+
+    static void ClearAttributes(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+        foreach (string file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+            catch
+            {
+            }
+        }
+        foreach (string dir in Directory.GetDirectories(path, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                File.SetAttributes(dir, FileAttributes.Directory);
+            }
+            catch
+            {
             }
         }
     }
