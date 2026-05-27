@@ -5,8 +5,8 @@ $xamppSource = "C:\xampp82"
 $ventasSource = Join-Path $xamppSource "htdocs\VENTAS"
 $buildDir = Join-Path $projectDir "build_instalador_ventas_reparaciones"
 $stagingDir = Join-Path $buildDir "payload"
-$installRootName = "Ventas y Reparaciones"
-$installRootPath = "C:\Ventas y Reparaciones"
+$installRootName = "VentasReparacionesApp"
+$installRootPath = "C:\VentasReparacionesApp"
 $payloadZip = Join-Path $buildDir "ventas_reparaciones_payload.zip"
 $installerSource = Join-Path $buildDir "InstaladorVentasReparaciones.cs"
 $launcherSource = Join-Path $buildDir "ControlVentasReparaciones.cs"
@@ -295,7 +295,7 @@ function Export-CleanDatabaseSchema {
     if ($LASTEXITCODE -ne 0 -or -not $schema) {
         throw "No se pudo generar el esquema limpio de sistema_ventas. Inicie MySQL local y reintente."
     }
-    $schema | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+    Set-Utf8NoBom -LiteralPath $OutputPath -Value ($schema -join [Environment]::NewLine)
 }
 
 function Remove-InstallerBusinessDatabases {
@@ -308,6 +308,103 @@ function Remove-InstallerBusinessDatabases {
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force
         }
+    }
+}
+
+function Test-PortOpen {
+    param(
+        [string]$HostName,
+        [int]$Port
+    )
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $iar = $client.BeginConnect($HostName, $Port, $null, $null)
+        $ok = $iar.AsyncWaitHandle.WaitOne(500)
+        if ($ok) {
+            $client.EndConnect($iar)
+        }
+        $client.Close()
+        return $ok
+    } catch {
+        return $false
+    }
+}
+
+function Wait-PortOpen {
+    param(
+        [string]$HostName,
+        [int]$Port,
+        [int]$TimeoutMs = 30000
+    )
+    $elapsed = 0
+    while ($elapsed -lt $TimeoutMs) {
+        if (Test-PortOpen -HostName $HostName -Port $Port) {
+            return
+        }
+        Start-Sleep -Milliseconds 500
+        $elapsed += 500
+    }
+    throw "No inicio MySQL temporal en el puerto $Port."
+}
+
+function Import-SchemaIntoStagedMysql {
+    param(
+        [Parameter(Mandatory = $true)][string]$PayloadRootPath,
+        [Parameter(Mandatory = $true)][string]$SchemaPath
+    )
+
+    $mysqlRoot = Join-Path $PayloadRootPath "mysql"
+    $dataPath = Join-Path $mysqlRoot "data"
+    $mysqld = Join-Path $mysqlRoot "bin\mysqld.exe"
+    $mysql = Join-Path $mysqlRoot "bin\mysql.exe"
+    if (-not (Test-Path -LiteralPath $mysqld) -or -not (Test-Path -LiteralPath $mysql)) {
+        throw "No se encontro MySQL portable en el paquete."
+    }
+
+    Remove-InstallerBusinessDatabases -MysqlDataPath $dataPath
+    Get-ChildItem -LiteralPath $dataPath -Include "mysql.pid","*.err","ibtmp1" -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+    $port = 3317
+    while (Test-PortOpen -HostName "127.0.0.1" -Port $port) {
+        $port++
+    }
+
+    $args = @(
+        "--no-defaults",
+        "--basedir=$mysqlRoot",
+        "--datadir=$dataPath",
+        "--port=$port",
+        "--bind-address=127.0.0.1",
+        "--skip-grant-tables",
+        "--skip-networking=0"
+    )
+
+    $proc = Start-Process -FilePath $mysqld -ArgumentList $args -WorkingDirectory $mysqlRoot -WindowStyle Hidden -PassThru
+    try {
+        Wait-PortOpen -HostName "127.0.0.1" -Port $port -TimeoutMs 30000
+        $schema = Get-Content -LiteralPath $SchemaPath -Raw
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $mysql
+        $psi.Arguments = "--protocol=tcp --host=127.0.0.1 --port=$port --user=root"
+        $psi.WorkingDirectory = $mysqlRoot
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardError = $true
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $p.StandardInput.Write($schema)
+        $p.StandardInput.Close()
+        $errorText = $p.StandardError.ReadToEnd()
+        $p.WaitForExit()
+        if ($p.ExitCode -ne 0) {
+            throw "No se pudo preparar la base sistema_ventas dentro del instalador. $errorText"
+        }
+    } finally {
+        if ($proc -and -not $proc.HasExited) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+        }
+        Get-ChildItem -LiteralPath $dataPath -Include "mysql.pid","*.err","ibtmp1" -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -330,7 +427,7 @@ New-Item -ItemType Directory -Force -Path $payloadRoot | Out-Null
 Invoke-RobocopyChecked -Source (Join-Path $xamppSource "apache") -Destination (Join-Path $payloadRoot "apache")
 Invoke-RobocopyChecked -Source (Join-Path $xamppSource "php") -Destination (Join-Path $payloadRoot "php")
 Invoke-RobocopyChecked -Source (Join-Path $xamppSource "mysql") -Destination (Join-Path $payloadRoot "mysql") -ExtraArgs @("/XF", "mysql.pid", "*.err")
-Remove-InstallerBusinessDatabases -MysqlDataPath (Join-Path $payloadRoot "mysql\data")
+Import-SchemaIntoStagedMysql -PayloadRootPath $payloadRoot -SchemaPath $schemaSource
 Invoke-RobocopyChecked -Source (Join-Path $xamppSource "tmp") -Destination (Join-Path $payloadRoot "tmp")
 
 Write-Host "Copiando aplicacion VENTAS..."
@@ -412,7 +509,7 @@ class ControlVentasReparaciones
         finally
         {
             StopProcess(apache);
-            StopProcess(mysql);
+            StopMySqlGracefully(root, mysql);
             StopPort(8765);
             StopLocalProcessesFromRoot(root);
         }
@@ -425,7 +522,7 @@ class ControlVentasReparaciones
         {
             return dir;
         }
-        return @"C:\Ventas y Reparaciones";
+        return @"C:\VentasReparacionesApp";
     }
 
     static bool IsPortOpen(string host, int port)
@@ -535,22 +632,43 @@ class ControlVentasReparaciones
 
     static void OpenBrowserAppAndWait(string root, string url)
     {
-        string browser = FindBrowser();
-        if (browser == "")
+        string chrome = FindChrome();
+        if (chrome != "")
         {
-            ProcessStartInfo fallback = new ProcessStartInfo();
-            fallback.FileName = url;
-            fallback.UseShellExecute = true;
-            Process.Start(fallback);
-            System.Windows.Forms.MessageBox.Show("Cuando termine de usar el sistema, presione Aceptar para cerrar los servidores locales.", "Ventas y Reparaciones", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
+            OpenChromeAndWait(root, chrome, url);
             return;
         }
 
-        string profile = Path.Combine(root, "browser_profile");
+        System.Windows.Forms.DialogResult respuesta = System.Windows.Forms.MessageBox.Show("No se encontro Google Chrome instalado. Queres abrir el sistema con otro navegador?", "Ventas y Reparaciones", System.Windows.Forms.MessageBoxButtons.YesNo, System.Windows.Forms.MessageBoxIcon.Question);
+        if (respuesta != System.Windows.Forms.DialogResult.Yes)
+        {
+            return;
+        }
+
+        string browser = FindFallbackBrowser();
+        ProcessStartInfo info = new ProcessStartInfo();
+        if (browser != "")
+        {
+            info.FileName = browser;
+            info.Arguments = "--new-window \"" + url + "\"";
+            info.UseShellExecute = false;
+        }
+        else
+        {
+            info.FileName = url;
+            info.UseShellExecute = true;
+        }
+        Process.Start(info);
+        System.Windows.Forms.MessageBox.Show("Cuando termine de usar el sistema, presione Aceptar para cerrar los servidores locales.", "Ventas y Reparaciones", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
+    }
+
+    static void OpenChromeAndWait(string root, string chrome, string url)
+    {
+        string profile = Path.Combine(root, "chrome_profile");
         Directory.CreateDirectory(profile);
         ProcessStartInfo info = new ProcessStartInfo();
-        info.FileName = browser;
-        info.Arguments = "--app=\"" + url + "\" --user-data-dir=\"" + profile + "\" --no-first-run --disable-background-mode";
+        info.FileName = chrome;
+        info.Arguments = "--new-window \"" + url + "\" --user-data-dir=\"" + profile + "\" --no-first-run --disable-background-mode";
         info.UseShellExecute = false;
         Process proceso = Process.Start(info);
         if (proceso != null)
@@ -559,14 +677,31 @@ class ControlVentasReparaciones
         }
     }
 
-    static string FindBrowser()
+    static string FindChrome()
     {
         string[] candidates = new[]
         {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft", "Edge", "Application", "msedge.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google", "Chrome", "Application", "chrome.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Google", "Chrome", "Application", "chrome.exe")
+        };
+        foreach (string path in candidates)
+        {
+            if (File.Exists(path))
+            {
+                return path;
+            }
+        }
+        return "";
+    }
+
+    static string FindFallbackBrowser()
+    {
+        string[] candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft", "Edge", "Application", "msedge.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Mozilla Firefox", "firefox.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Mozilla Firefox", "firefox.exe")
         };
         foreach (string path in candidates)
         {
@@ -594,6 +729,46 @@ class ControlVentasReparaciones
         }
         catch
         {
+        }
+    }
+
+    static void StopMySqlGracefully(string root, Process mysqlProcess)
+    {
+        string mysqladmin = Path.Combine(root, "mysql", "bin", "mysqladmin.exe");
+        if (File.Exists(mysqladmin) && IsPortOpen("127.0.0.1", 3306))
+        {
+            try
+            {
+                ProcessStartInfo info = new ProcessStartInfo();
+                info.FileName = mysqladmin;
+                info.Arguments = "--user=root shutdown";
+                info.WorkingDirectory = root;
+                info.UseShellExecute = false;
+                info.CreateNoWindow = true;
+                using (Process proceso = Process.Start(info))
+                {
+                    proceso.WaitForExit(10000);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        if (mysqlProcess != null)
+        {
+            try
+            {
+                mysqlProcess.WaitForExit(10000);
+            }
+            catch
+            {
+            }
+        }
+
+        if (IsPortOpen("127.0.0.1", 3306))
+        {
+            StopProcess(mysqlProcess);
         }
     }
 
@@ -695,7 +870,7 @@ class InstaladorVentasReparaciones
 {
     static int Main()
     {
-        string destino = @"C:\Ventas y Reparaciones";
+        string destino = @"C:\VentasReparacionesApp";
         string backup = Path.Combine(Path.GetTempPath(), "ventas_reparaciones_backup");
         string payload = Path.Combine(Path.GetTempPath(), "ventas_reparaciones_payload.zip");
 
@@ -751,6 +926,28 @@ class InstaladorVentasReparaciones
         CopyFileIfExists(Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "reparaciones.db"), Path.Combine(backup, "reparaciones.db"));
         CopyFileIfExists(Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "comercio_config.json"), Path.Combine(backup, "comercio_config.json"));
         CopyDirIfExists(Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "tickets"), Path.Combine(backup, "tickets"));
+
+        string instalacionAppAnterior = @"C:\Ventas y Reparaciones";
+        if (!Directory.Exists(Path.Combine(backup, "mysql_data")))
+        {
+            CopyDirIfExists(Path.Combine(instalacionAppAnterior, "mysql", "data"), Path.Combine(backup, "mysql_data"));
+        }
+        if (!Directory.Exists(Path.Combine(backup, "almacenamiento")))
+        {
+            CopyDirIfExists(Path.Combine(instalacionAppAnterior, "htdocs", "VENTAS", "almacenamiento"), Path.Combine(backup, "almacenamiento"));
+        }
+        if (!File.Exists(Path.Combine(backup, "reparaciones.db")))
+        {
+            CopyFileIfExists(Path.Combine(instalacionAppAnterior, "htdocs", "VENTAS", "reparaciones_python", "reparaciones.db"), Path.Combine(backup, "reparaciones.db"));
+        }
+        if (!File.Exists(Path.Combine(backup, "comercio_config.json")))
+        {
+            CopyFileIfExists(Path.Combine(instalacionAppAnterior, "htdocs", "VENTAS", "reparaciones_python", "comercio_config.json"), Path.Combine(backup, "comercio_config.json"));
+        }
+        if (!Directory.Exists(Path.Combine(backup, "tickets")))
+        {
+            CopyDirIfExists(Path.Combine(instalacionAppAnterior, "htdocs", "VENTAS", "reparaciones_python", "tickets"), Path.Combine(backup, "tickets"));
+        }
 
         string instalacionXamppAnterior = @"C:\xampp82";
         if (!Directory.Exists(Path.Combine(backup, "mysql_data")))
@@ -935,6 +1132,10 @@ class InstaladorVentasReparaciones
 
     static void InitializeBlankDatabaseIfNeeded(string destino, string backup)
     {
+        if (Directory.Exists(Path.Combine(destino, "mysql", "data", "sistema_ventas")))
+        {
+            return;
+        }
         if (Directory.Exists(Path.Combine(backup, "mysql_data")))
         {
             return;
@@ -946,7 +1147,7 @@ class InstaladorVentasReparaciones
         }
         StartMySql(destino);
         string mysql = Path.Combine(destino, "mysql", "bin", "mysql.exe");
-        RunProcess(mysql, "--user=root < \"" + schema + "\"", destino, true);
+        RunMysqlScript(mysql, schema, destino);
     }
 
     static bool IsPortOpen(string host, int port)
@@ -1023,6 +1224,30 @@ class InstaladorVentasReparaciones
             if (proceso.ExitCode != 0)
             {
                 throw new Exception("No se pudo inicializar la base de datos limpia.");
+            }
+        }
+    }
+
+    static void RunMysqlScript(string mysqlExe, string schemaPath, string workingDirectory)
+    {
+        ProcessStartInfo info = new ProcessStartInfo();
+        info.FileName = mysqlExe;
+        info.Arguments = "--user=root";
+        info.WorkingDirectory = workingDirectory;
+        info.UseShellExecute = false;
+        info.CreateNoWindow = true;
+        info.RedirectStandardInput = true;
+        info.RedirectStandardError = true;
+        using (Process proceso = Process.Start(info))
+        {
+            string sql = File.ReadAllText(schemaPath);
+            proceso.StandardInput.Write(sql);
+            proceso.StandardInput.Close();
+            string error = proceso.StandardError.ReadToEnd();
+            proceso.WaitForExit();
+            if (proceso.ExitCode != 0)
+            {
+                throw new Exception("No se pudo inicializar la base de datos limpia. " + error);
             }
         }
     }

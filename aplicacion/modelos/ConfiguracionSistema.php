@@ -95,10 +95,13 @@ class ConfiguracionSistema {
         $archivo = self::archivo_configuracion();
         if (is_file($archivo)) {
             $json = @file_get_contents($archivo);
+            if (is_string($json))
+                $json = preg_replace('/^\xEF\xBB\xBF/', '', $json);
             $guardado = is_string($json) ? json_decode($json, true) : null;
             if (is_array($guardado))
                 $datos = array_merge($datos, self::normalizar($guardado));
         }
+        $datos = array_merge($datos, self::obtener_desde_db());
         return $datos;
     }
 
@@ -120,7 +123,8 @@ class ConfiguracionSistema {
         $ok_json = @file_put_contents(self::archivo_configuracion(), $json) !== false;
         $ok_arca = self::sincronizar_arca($datos);
         $ok_reparaciones = self::sincronizar_reparaciones($datos);
-        return $ok_json && $ok_arca && $ok_reparaciones;
+        $ok_db = self::guardar_en_db($datos);
+        return $ok_json && $ok_arca && $ok_reparaciones && $ok_db;
     }
 
     public static function restablecer(): bool {
@@ -131,7 +135,77 @@ class ConfiguracionSistema {
         $datos = self::valores_defecto();
         $ok_arca = self::sincronizar_arca($datos);
         $ok_reparaciones = self::sincronizar_reparaciones($datos);
-        return $ok_arca && $ok_reparaciones;
+        $ok_db = self::guardar_en_db($datos);
+        return $ok_arca && $ok_reparaciones && $ok_db;
+    }
+
+    private static function obtener_desde_db(): array {
+        $datos = [];
+        if (!function_exists("obtener_pdo"))
+            require_once __DIR__ . "/../../configuraciones/base_datos.php";
+        $pdo = obtener_pdo();
+        if ($pdo === null)
+            return $datos;
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS configuraciones (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                clave VARCHAR(120) NOT NULL,
+                valor LONGTEXT NULL,
+                tipo VARCHAR(40) NOT NULL DEFAULT 'texto',
+                grupo VARCHAR(60) NOT NULL DEFAULT 'sistema',
+                UNIQUE KEY uq_configuraciones_clave (clave),
+                KEY idx_configuraciones_grupo (grupo)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $permitidos = array_flip(array_keys(self::valores_defecto()));
+            $st = $pdo->query("SELECT clave, valor FROM configuraciones");
+            $rows = $st ? $st->fetchAll() : [];
+            $claves_presentes = [];
+            foreach ($rows as $row) {
+                $clave = (string)($row["clave"] ?? "");
+                if (isset($permitidos[$clave])) {
+                    $datos[$clave] = (string)($row["valor"] ?? "");
+                    $claves_presentes[$clave] = true;
+                }
+            }
+            $normalizados = self::normalizar($datos);
+            $datos = [];
+            foreach ($claves_presentes as $clave => $_)
+                $datos[$clave] = $normalizados[$clave] ?? "";
+        } catch (Throwable $e) {
+            registrar_log("ConfiguracionSistema::obtener_desde_db", $e->getMessage());
+            $datos = [];
+        }
+        return $datos;
+    }
+
+    private static function guardar_en_db(array $datos): bool {
+        if (!function_exists("obtener_pdo"))
+            require_once __DIR__ . "/../../configuraciones/base_datos.php";
+        $pdo = obtener_pdo();
+        if ($pdo === null)
+            return false;
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS configuraciones (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                clave VARCHAR(120) NOT NULL,
+                valor LONGTEXT NULL,
+                tipo VARCHAR(40) NOT NULL DEFAULT 'texto',
+                grupo VARCHAR(60) NOT NULL DEFAULT 'sistema',
+                UNIQUE KEY uq_configuraciones_clave (clave),
+                KEY idx_configuraciones_grupo (grupo)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $normalizados = self::normalizar($datos);
+            $st = $pdo->prepare("INSERT INTO configuraciones (clave, valor, tipo, grupo) VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE valor = VALUES(valor), tipo = VALUES(tipo), grupo = VALUES(grupo)");
+            foreach ($normalizados as $clave => $valor)
+                $st->execute([$clave, (string)$valor, self::tipo_config($clave), self::grupo_config($clave)]);
+            if (function_exists("config_cache_reset"))
+                config_cache_reset();
+            return true;
+        } catch (Throwable $e) {
+            registrar_log("ConfiguracionSistema::guardar_en_db", $e->getMessage());
+            return false;
+        }
     }
 
     public static function obtener_configuracion_fiscal(): array {
@@ -254,6 +328,44 @@ class ConfiguracionSistema {
                 $datos[$clave] = trim((string)$valor);
         }
         return $datos;
+    }
+
+    private static function tipo_config(string $clave): string {
+        if (str_contains($clave, "color"))
+            return "color";
+        if (in_array($clave, ["ticket_imagen_completa", "ticket_logo_termico"], true) || str_starts_with($clave, "mostrar_") || str_contains($clave, "_habilitado") || str_contains($clave, "_auto") || str_contains($clave, "_sonido") || str_contains($clave, "_toasts") || str_contains($clave, "_alertas") || str_contains($clave, "_logs") || str_contains($clave, "_animaciones") || str_contains($clave, "_sombras") || str_contains($clave, "_escaner") || str_contains($clave, "_etiquetas"))
+            return "booleano";
+        if (str_contains($clave, "decimales") || str_contains($clave, "tiempo") || str_contains($clave, "tamano") || str_contains($clave, "radio") || $clave === "punto_venta" || $clave === "navbar_boton_opacidad")
+            return "numero";
+        if (str_contains($clave, "logo") || str_contains($clave, "favicon") || str_contains($clave, "imagen"))
+            return "archivo";
+        return "texto";
+    }
+
+    private static function grupo_config(string $clave): string {
+        if (in_array($clave, ["nombre_comercio", "razon_social", "cuit", "condicion_iva", "domicilio", "localidad", "provincia", "telefonos", "whatsapp", "email", "sitio_web", "ingresos_brutos", "inicio_actividades", "punto_venta"], true))
+            return "comercio";
+        if (str_starts_with($clave, "ventas_") || in_array($clave, ["controlar_stock_ventas"], true))
+            return "ventas";
+        if (str_starts_with($clave, "productos_") || str_starts_with($clave, "balanza_"))
+            return "productos";
+        if (str_starts_with($clave, "clientes_"))
+            return "clientes";
+        if (str_starts_with($clave, "listas_"))
+            return "listas";
+        if (str_starts_with($clave, "notificaciones_"))
+            return "notificaciones";
+        if (str_starts_with($clave, "seguridad_") || $clave === "auth_modo")
+            return "seguridad";
+        if (str_starts_with($clave, "backup_"))
+            return "backup";
+        if (str_contains($clave, "ticket") || str_starts_with($clave, "formato_impresion"))
+            return "impresion";
+        if (str_starts_with($clave, "navbar_"))
+            return "menu";
+        if (in_array($clave, ["logo", "favicon", "color_acento", "color_secundario", "color_fondo", "color_fondo_secundario", "color_tarjetas", "color_texto", "color_texto_suave", "color_borde", "color_panel_inicio", "color_panel_inicio_2", "tema_paneles", "tema_modo", "ui_radio_bordes", "ui_tamano_tarjetas", "ui_sombras", "ui_animaciones", "imagen_panel"], true))
+            return "apariencia";
+        return "sistema";
     }
 
     private static function archivo_configuracion(): string {

@@ -12,6 +12,8 @@
 # Cache / temporales
 /tmp/
 .cache/
+__pycache__/
+*.pyc
 
 # IDE
 .vscode/
@@ -24,6 +26,8 @@ Thumbs.db
 # Archivos pesados
 *.exe
 *.zip
+*.tar
+*.tar.gz
 
 build_instalador_ventas_reparaciones/
 respaldos/
