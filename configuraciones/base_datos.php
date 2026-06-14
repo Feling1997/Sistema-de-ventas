@@ -5,7 +5,7 @@ require_once __DIR__."/ayudas.php";
 function obtener_pdo(): ?PDO{
     static $pdo=null;
     if($pdo===null){
-        $host="localhost";
+        $host="127.0.0.1";
         $bd="sistema_ventas";
         $usuario="root";
         $clave="";
@@ -13,11 +13,17 @@ function obtener_pdo(): ?PDO{
         try{
             $pdo=new PDO($dsn,$usuario,$clave,[
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_TIMEOUT => 2
                 ]);
         }catch(Throwable $e){
             $pdo=null;
             registrar_log("BD",$e->getMessage());
+            registrar_operacion("bd.conexion.error", [
+                "host" => $host,
+                "base_datos" => $bd,
+                "error" => $e->getMessage(),
+            ]);
         }
     }
     return $pdo;

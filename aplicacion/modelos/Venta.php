@@ -2,6 +2,22 @@
 require_once __DIR__ . "/../../configuraciones/base_datos.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 class Venta {
+    public static function asegurar_usuario_sistema(PDO $pdo, int $id_usuario): int {
+        if ($id_usuario > 0) {
+            $st = $pdo->prepare("SELECT id FROM usuarios WHERE id = ? LIMIT 1");
+            $st->execute([$id_usuario]);
+            if ($st->fetch())
+                return $id_usuario;
+        }
+        $pdo->exec("SET @old_sql_mode = @@SESSION.sql_mode");
+        $pdo->exec("SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_AUTO_VALUE_ON_ZERO')");
+        $pdo->prepare("INSERT INTO usuarios (id, usuario, clave, rol, activo)
+                       VALUES (0, 'Sin login', '', 'ADMIN', 1)
+                       ON DUPLICATE KEY UPDATE usuario = VALUES(usuario), rol = VALUES(rol), activo = 1")->execute();
+        $pdo->exec("SET SESSION sql_mode = @old_sql_mode");
+        return 0;
+    }
+
     public static function asegurar_columnas_detalle(): void {
         $pdo = obtener_pdo();
         if ($pdo === null)
@@ -233,7 +249,7 @@ class Venta {
                     $res["error"] = "El carrito está vacío.";
                 else {
                     if ($id_cliente <= 0) { $id_cliente = 1; }
-                    if ($id_usuario <= 0) { $id_usuario = 0; }
+                    $id_usuario = self::asegurar_usuario_sistema($pdo, $id_usuario);
                     $total = 0.0;
                     foreach ($carrito as $it) {
                         $cantidad = (float)($it["cantidad"] ?? 0);

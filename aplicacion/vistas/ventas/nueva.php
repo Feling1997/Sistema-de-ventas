@@ -666,13 +666,11 @@ foreach ($clientes as $cliente_item) {
     const textoBase = textoEntrada !== undefined ? textoEntrada : (inputProd ? inputProd.value : '');
     const datos = datosEntradaProducto(textoBase);
     const texto = datos.codigo.trim();
-    if (!selProd || texto === '') {
-      cargarProductosEnUI([], '');
-      precioProductoSeleccionado();
+    if (!selProd) {
       return;
     }
     const soloCodigo = modoBusquedaProducto && modoBusquedaProducto.value === 'codigo';
-    if (!soloCodigo && texto.length < 2) {
+    if (soloCodigo && texto === '') {
       cargarProductosEnUI([], '');
       return;
     }

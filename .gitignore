@@ -8,6 +8,7 @@
 # Logs del sistema
 /almacenamiento/logs/
 *.log
+almacenamiento/diagnostico_escritura.txt
 
 # Cache / temporales
 /tmp/

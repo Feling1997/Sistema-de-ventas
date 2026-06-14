@@ -3,6 +3,7 @@
 require_once __DIR__ . "/../../configuraciones/base_datos.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/UnidadMedida.php";
+require_once __DIR__ . "/ServicioPrecios.php";
 
 class Stock{
     private static bool $columnas_minmax_aseguradas = false;
@@ -38,6 +39,16 @@ class Stock{
                             ) c ON c.id_stock = s.id
                             SET s.tipo_stock = 'propio'
                             WHERE c.total = 1 AND LOWER(TRIM(s.nombre)) = LOWER(TRIM(p.nombre))");
+            }
+            $st = $pdo->prepare("SHOW COLUMNS FROM stock LIKE ?");
+            $st->execute(["moneda_costo"]);
+            if (!$st->fetch())
+                $pdo->exec("ALTER TABLE stock ADD COLUMN moneda_costo VARCHAR(3) NOT NULL DEFAULT 'ARS' AFTER precio_costo");
+            $st = $pdo->prepare("SHOW COLUMNS FROM stock LIKE ?");
+            $st->execute(["costo_origen"]);
+            if (!$st->fetch()) {
+                $pdo->exec("ALTER TABLE stock ADD COLUMN costo_origen DECIMAL(14,4) NOT NULL DEFAULT 0 AFTER moneda_costo");
+                $pdo->exec("UPDATE stock SET costo_origen = precio_costo");
             }
             self::asegurar_indice($pdo, "stock", "idx_stock_alerta_menu", "ALTER TABLE stock ADD INDEX idx_stock_alerta_menu (activo, tipo_stock, cantidad, stock_minimo)");
             self::asegurar_indice($pdo, "productos", "idx_productos_stock_activo", "ALTER TABLE productos ADD INDEX idx_productos_stock_activo (id_stock, activo)");
@@ -96,6 +107,18 @@ class Stock{
         return $tipo_stock === "propio" ? "propio" : "general";
     }
 
+    private static function normalizar_moneda_costo(string $moneda): string {
+        return ServicioPrecios::normalizar_moneda_costo($moneda);
+    }
+
+    public static function cotizacion_dolar(): float {
+        return ServicioPrecios::cotizacion_dolar();
+    }
+
+    public static function costo_en_pesos(float $costo_origen, string $moneda): float {
+        return ServicioPrecios::costo_en_pesos($costo_origen, $moneda);
+    }
+
     private static function sql_alertas_stock_bajo(): string {
         return "SELECT p.id AS id_producto, p.nombre AS producto, p.activo AS producto_activo,
                        s.id AS id_stock, s.nombre AS stock_nombre, s.unidad, s.cantidad, s.stock_minimo,
@@ -131,7 +154,7 @@ class Stock{
         $pdo=obtener_pdo();
         if($pdo!==null){
             try{
-                $sql = "SELECT s.id, s.nombre, s.unidad, s.tipo_stock, s.cantidad, s.stock_minimo, s.stock_maximo, s.precio_costo, s.activo, s.creado_en,
+                $sql = "SELECT s.id, s.nombre, s.unidad, s.tipo_stock, s.cantidad, s.stock_minimo, s.stock_maximo, s.precio_costo, s.moneda_costo, s.costo_origen, s.activo, s.creado_en,
                                COALESCE(um.decimales, 3) AS unidad_decimales
                         FROM stock s
                         LEFT JOIN unidades_medida um ON um.abreviatura COLLATE utf8mb4_unicode_ci = s.unidad COLLATE utf8mb4_unicode_ci
@@ -154,7 +177,7 @@ class Stock{
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
-                $sql = "SELECT s.id, s.nombre, s.unidad, s.tipo_stock, s.cantidad, s.stock_minimo, s.stock_maximo, s.precio_costo, s.activo, s.creado_en,
+                $sql = "SELECT s.id, s.nombre, s.unidad, s.tipo_stock, s.cantidad, s.stock_minimo, s.stock_maximo, s.precio_costo, s.moneda_costo, s.costo_origen, s.activo, s.creado_en,
                                COALESCE(um.decimales, 3) AS unidad_decimales
                         FROM stock s
                         LEFT JOIN unidades_medida um ON um.abreviatura COLLATE utf8mb4_unicode_ci = s.unidad COLLATE utf8mb4_unicode_ci
@@ -175,17 +198,20 @@ class Stock{
         return self::crear_con_tipo($nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, "general");
     }
 
-    public static function crear_con_tipo(string $nombre, string $unidad, float $cantidad, float $precio_costo, int $activo, float $stock_minimo = 0, float $stock_maximo = 0, string $tipo_stock = "general"): bool {
+    public static function crear_con_tipo(string $nombre, string $unidad, float $cantidad, float $precio_costo, int $activo, float $stock_minimo = 0, float $stock_maximo = 0, string $tipo_stock = "general", string $moneda_costo = "ARS"): bool {
         self::asegurar_columnas_minmax();
         $ok = false;
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
                 $tipo_stock = self::normalizar_tipo_stock($tipo_stock);
+                $moneda_costo = self::normalizar_moneda_costo($moneda_costo);
+                $costo_origen = max(0, $precio_costo);
+                $precio_costo = self::costo_en_pesos($costo_origen, $moneda_costo);
                 $unidad = UnidadMedida::asegurar_desde_form($unidad, []);
-                $sql = "INSERT INTO stock (nombre, unidad, tipo_stock, cantidad, stock_minimo, stock_maximo, precio_costo, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                $sql = "INSERT INTO stock (nombre, unidad, tipo_stock, cantidad, stock_minimo, stock_maximo, precio_costo, moneda_costo, costo_origen, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 $st = $pdo->prepare($sql);
-                $ok = $st->execute([$nombre, $unidad, $tipo_stock, $cantidad, $stock_minimo, $stock_maximo, $precio_costo, $activo]);
+                $ok = $st->execute([$nombre, $unidad, $tipo_stock, $cantidad, $stock_minimo, $stock_maximo, $precio_costo, $moneda_costo, $costo_origen, $activo]);
             } catch (Throwable $e) {
                 $ok = false;
                 registrar_log("Stock::crear", $e->getMessage());
@@ -198,17 +224,20 @@ class Stock{
         return self::crear_retornar_id_con_tipo($nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, "general");
     }
 
-    public static function crear_retornar_id_con_tipo(string $nombre, string $unidad, float $cantidad, float $precio_costo, int $activo, float $stock_minimo = 0, float $stock_maximo = 0, string $tipo_stock = "general"): int {
+    public static function crear_retornar_id_con_tipo(string $nombre, string $unidad, float $cantidad, float $precio_costo, int $activo, float $stock_minimo = 0, float $stock_maximo = 0, string $tipo_stock = "general", string $moneda_costo = "ARS"): int {
         self::asegurar_columnas_minmax();
         $id = 0;
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
                 $tipo_stock = self::normalizar_tipo_stock($tipo_stock);
+                $moneda_costo = self::normalizar_moneda_costo($moneda_costo);
+                $costo_origen = max(0, $precio_costo);
+                $precio_costo = self::costo_en_pesos($costo_origen, $moneda_costo);
                 $unidad = UnidadMedida::asegurar_desde_form($unidad, []);
-                $sql = "INSERT INTO stock (nombre, unidad, tipo_stock, cantidad, stock_minimo, stock_maximo, precio_costo, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                $sql = "INSERT INTO stock (nombre, unidad, tipo_stock, cantidad, stock_minimo, stock_maximo, precio_costo, moneda_costo, costo_origen, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 $st = $pdo->prepare($sql);
-                if ($st->execute([$nombre, $unidad, $tipo_stock, $cantidad, $stock_minimo, $stock_maximo, $precio_costo, $activo]))
+                if ($st->execute([$nombre, $unidad, $tipo_stock, $cantidad, $stock_minimo, $stock_maximo, $precio_costo, $moneda_costo, $costo_origen, $activo]))
                     $id = (int)$pdo->lastInsertId();
             } catch (Throwable $e) {
                 registrar_log("Stock::crear_retornar_id", $e->getMessage());
@@ -221,22 +250,25 @@ class Stock{
         return self::actualizar_con_tipo($id, $nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, "");
     }
 
-    public static function actualizar_con_tipo(int $id, string $nombre, string $unidad, float $cantidad, float $precio_costo, int $activo, float $stock_minimo = 0, float $stock_maximo = 0, string $tipo_stock = ""): bool {
+    public static function actualizar_con_tipo(int $id, string $nombre, string $unidad, float $cantidad, float $precio_costo, int $activo, float $stock_minimo = 0, float $stock_maximo = 0, string $tipo_stock = "", string $moneda_costo = ""): bool {
         self::asegurar_columnas_minmax();
         $ok = false;
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
                 $unidad = UnidadMedida::asegurar_desde_form($unidad, []);
+                $moneda_costo = $moneda_costo !== "" ? self::normalizar_moneda_costo($moneda_costo) : "";
+                $costo_origen = max(0, $precio_costo);
+                $precio_costo = self::costo_en_pesos($costo_origen, $moneda_costo !== "" ? $moneda_costo : "ARS");
                 if ($tipo_stock === "") {
-                    $sql = "UPDATE stock SET nombre = ?, unidad = ?, cantidad = ?, stock_minimo = ?, stock_maximo = ?, precio_costo = ?, activo = ? WHERE id = ?";
+                    $sql = "UPDATE stock SET nombre = ?, unidad = ?, cantidad = ?, stock_minimo = ?, stock_maximo = ?, precio_costo = ?, moneda_costo = COALESCE(NULLIF(?, ''), moneda_costo), costo_origen = ?, activo = ? WHERE id = ?";
                     $st = $pdo->prepare($sql);
-                    $ok = $st->execute([$nombre, $unidad, $cantidad, $stock_minimo, $stock_maximo, $precio_costo, $activo, $id]);
+                    $ok = $st->execute([$nombre, $unidad, $cantidad, $stock_minimo, $stock_maximo, $precio_costo, $moneda_costo, $costo_origen, $activo, $id]);
                 } else {
                     $tipo_stock = self::normalizar_tipo_stock($tipo_stock);
-                    $sql = "UPDATE stock SET nombre = ?, unidad = ?, tipo_stock = ?, cantidad = ?, stock_minimo = ?, stock_maximo = ?, precio_costo = ?, activo = ? WHERE id = ?";
+                    $sql = "UPDATE stock SET nombre = ?, unidad = ?, tipo_stock = ?, cantidad = ?, stock_minimo = ?, stock_maximo = ?, precio_costo = ?, moneda_costo = COALESCE(NULLIF(?, ''), moneda_costo), costo_origen = ?, activo = ? WHERE id = ?";
                     $st = $pdo->prepare($sql);
-                    $ok = $st->execute([$nombre, $unidad, $tipo_stock, $cantidad, $stock_minimo, $stock_maximo, $precio_costo, $activo, $id]);
+                    $ok = $st->execute([$nombre, $unidad, $tipo_stock, $cantidad, $stock_minimo, $stock_maximo, $precio_costo, $moneda_costo, $costo_origen, $activo, $id]);
                 }
             } catch (Throwable $e) {
                 $ok = false;
@@ -317,27 +349,16 @@ class Stock{
     }
 
     public static function recalcular_precios_productos_por_stock(int $id_stock): bool {
-        $ok = false;
         $pdo = obtener_pdo();
-        if ($pdo !== null) {
-            try {
-                $sqlStock = "SELECT precio_costo FROM stock WHERE id = ? LIMIT 1";
-                $st1 = $pdo->prepare($sqlStock);
-                $st1->execute([$id_stock]);
-                $s = $st1->fetch();
-                if ($s) {
-                    $precio_costo = (float)$s["precio_costo"];
-                    $sqlUpd = "UPDATE productos SET precio_final = ( ? * factor_conversion ) * (1 + (ganancia/100)) WHERE id_stock = ?";
-                    $st2 = $pdo->prepare($sqlUpd);
-                    $ok = $st2->execute([$precio_costo, $id_stock]);
-                } else 
-                    $ok = false;
-            } catch (Throwable $e) {
-                $ok = false;
-                registrar_log("Stock::recalcular_precios_productos_por_stock", $e->getMessage());
-            }
-        }
-        return $ok;
+        return $pdo !== null ? ServicioPrecios::recalcular_precios_productos_por_stock($pdo, $id_stock) : false;
+    }
+
+    public static function recalcular_costos_por_cotizacion(): int {
+        self::asegurar_columnas_minmax();
+        $pdo = obtener_pdo();
+        if ($pdo === null)
+            return 0;
+        return ServicioPrecios::recalcular_costos_por_cotizacion($pdo);
     }
 
     public static function listar_generales_activos(): array {
@@ -346,7 +367,7 @@ class Stock{
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
-                $sql = "SELECT s.id, s.nombre, s.unidad, s.tipo_stock, s.cantidad, s.stock_minimo, s.stock_maximo, s.precio_costo, s.activo, s.creado_en,
+                $sql = "SELECT s.id, s.nombre, s.unidad, s.tipo_stock, s.cantidad, s.stock_minimo, s.stock_maximo, s.precio_costo, s.moneda_costo, s.costo_origen, s.activo, s.creado_en,
                                COALESCE(um.decimales, 3) AS unidad_decimales
                         FROM stock s
                         LEFT JOIN unidades_medida um ON um.abreviatura COLLATE utf8mb4_unicode_ci = s.unidad COLLATE utf8mb4_unicode_ci

@@ -101,7 +101,7 @@
   function actualizarContenido(form, url) {
     const selectorObjetivo = form.getAttribute('data-search-target') || '';
     const objetivoActual = selectorObjetivo ? document.querySelector(selectorObjetivo) : null;
-    const contenedorActual = document.querySelector('.container.py-5');
+    const contenedorActual = document.querySelector('.container-fluid');
     if (!contenedorActual)
       return;
     fetch(url, {
@@ -121,7 +121,7 @@
             return;
           objetivoActual.outerHTML = objetivoNuevo.outerHTML;
         } else {
-          const contenedorNuevo = doc.querySelector('.container.py-5');
+          const contenedorNuevo = doc.querySelector('.container-fluid');
           if (!contenedorNuevo)
             return;
           contenedorActual.innerHTML = contenedorNuevo.innerHTML;

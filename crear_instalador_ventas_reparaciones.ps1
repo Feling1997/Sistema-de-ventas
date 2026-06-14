@@ -6,11 +6,12 @@ $ventasSource = Join-Path $xamppSource "htdocs\VENTAS"
 $buildDir = Join-Path $projectDir "build_instalador_ventas_reparaciones"
 $stagingDir = Join-Path $buildDir "payload"
 $installRootName = "VentasReparacionesApp"
-$installRootPath = "C:\VentasReparacionesApp"
+$installRootPath = "C:\Users\Public\VentasReparacionesApp"
 $payloadZip = Join-Path $buildDir "ventas_reparaciones_payload.zip"
 $installerSource = Join-Path $buildDir "InstaladorVentasReparaciones.cs"
 $launcherSource = Join-Path $buildDir "ControlVentasReparaciones.cs"
 $schemaSource = Join-Path $buildDir "instalacion_schema.sql"
+$schemaFallback = Join-Path $projectDir "instalacion_schema_base.sql"
 $installerExe = Join-Path $projectDir "Instalador_Ventas_Reparaciones.exe"
 $launcherExe = Join-Path $stagingDir "$installRootName\Ventas y Reparaciones.exe"
 $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
@@ -138,6 +139,21 @@ function New-Shortcut {
     }
     $shortcut.Save()
 }
+
+function Remove-OldShortcut {
+    param([string]$Folder)
+    if (-not $Folder) { return }
+    foreach ($name in @("CONTROL VENTAS.lnk", "Ventas y Reparaciones - Chrome.lnk", "Ventas y Reparaciones.lnk")) {
+        $path = Join-Path $Folder $name
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Remove-OldShortcut -Folder $desktop
+Remove-OldShortcut -Folder $oneDriveDesktop
+Remove-OldShortcut -Folder $publicDesktop
 
 if ($desktop) {
     New-Shortcut -Path (Join-Path $desktop "Ventas y Reparaciones.lnk") -Target $Launcher
@@ -291,9 +307,18 @@ function Export-CleanDatabaseSchema {
     if (-not (Test-Path -LiteralPath $mysqldump)) {
         throw "No se encontro mysqldump.exe para generar el esquema limpio."
     }
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $schema = & $mysqldump --user=root --databases sistema_ventas --no-data --skip-comments --routines --events 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $schema) {
-        throw "No se pudo generar el esquema limpio de sistema_ventas. Inicie MySQL local y reintente."
+    $dumpExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorActionPreference
+    if ($dumpExitCode -ne 0 -or -not $schema) {
+        if (-not (Test-Path -LiteralPath $schemaFallback)) {
+            throw "No se pudo generar el esquema limpio de sistema_ventas y no existe instalacion_schema_base.sql."
+        }
+        Write-Host "MySQL local no disponible. Se usa instalacion_schema_base.sql validado."
+        Copy-Item -LiteralPath $schemaFallback -Destination $OutputPath -Force
+        return
     }
     Set-Utf8NoBom -LiteralPath $OutputPath -Value ($schema -join [Environment]::NewLine)
 }
@@ -355,57 +380,16 @@ function Import-SchemaIntoStagedMysql {
 
     $mysqlRoot = Join-Path $PayloadRootPath "mysql"
     $dataPath = Join-Path $mysqlRoot "data"
-    $mysqld = Join-Path $mysqlRoot "bin\mysqld.exe"
-    $mysql = Join-Path $mysqlRoot "bin\mysql.exe"
-    if (-not (Test-Path -LiteralPath $mysqld) -or -not (Test-Path -LiteralPath $mysql)) {
-        throw "No se encontro MySQL portable en el paquete."
+    $cleanDataPath = Join-Path $mysqlRoot "backup"
+    if (-not (Test-Path -LiteralPath $cleanDataPath)) {
+        throw "No se encontro mysql\\backup para preparar una base limpia."
     }
-
+    if (Test-Path -LiteralPath $dataPath) {
+        Remove-Item -LiteralPath $dataPath -Recurse -Force
+    }
+    Copy-Item -LiteralPath $cleanDataPath -Destination $dataPath -Recurse -Force
     Remove-InstallerBusinessDatabases -MysqlDataPath $dataPath
     Get-ChildItem -LiteralPath $dataPath -Include "mysql.pid","*.err","ibtmp1" -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-
-    $port = 3317
-    while (Test-PortOpen -HostName "127.0.0.1" -Port $port) {
-        $port++
-    }
-
-    $args = @(
-        "--no-defaults",
-        "--basedir=$mysqlRoot",
-        "--datadir=$dataPath",
-        "--port=$port",
-        "--bind-address=127.0.0.1",
-        "--skip-grant-tables",
-        "--skip-networking=0"
-    )
-
-    $proc = Start-Process -FilePath $mysqld -ArgumentList $args -WorkingDirectory $mysqlRoot -WindowStyle Hidden -PassThru
-    try {
-        Wait-PortOpen -HostName "127.0.0.1" -Port $port -TimeoutMs 30000
-        $schema = Get-Content -LiteralPath $SchemaPath -Raw
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $mysql
-        $psi.Arguments = "--protocol=tcp --host=127.0.0.1 --port=$port --user=root"
-        $psi.WorkingDirectory = $mysqlRoot
-        $psi.UseShellExecute = $false
-        $psi.CreateNoWindow = $true
-        $psi.RedirectStandardInput = $true
-        $psi.RedirectStandardError = $true
-        $p = [System.Diagnostics.Process]::Start($psi)
-        $p.StandardInput.Write($schema)
-        $p.StandardInput.Close()
-        $errorText = $p.StandardError.ReadToEnd()
-        $p.WaitForExit()
-        if ($p.ExitCode -ne 0) {
-            throw "No se pudo preparar la base sistema_ventas dentro del instalador. $errorText"
-        }
-    } finally {
-        if ($proc -and -not $proc.HasExited) {
-            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
-        }
-        Get-ChildItem -LiteralPath $dataPath -Include "mysql.pid","*.err","ibtmp1" -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    }
 }
 
 if (Test-Path -LiteralPath $buildDir) {
@@ -434,12 +418,22 @@ Write-Host "Copiando aplicacion VENTAS..."
 Invoke-RobocopyChecked -Source $ventasSource -Destination (Join-Path $payloadRoot "htdocs\VENTAS") -ExtraArgs @(
     "/XD",
     ".git",
+    "build_*",
     "build_instalador_reparaciones",
     "build_instalador_ventas_reparaciones",
+    "build_actualizacion_*",
+    "__pycache__",
     "/XF",
     "Instalador_Reparaciones.exe",
     "Instalador_Ventas_Reparaciones.exe",
-    "reparaciones_python_instalador.zip"
+    "Migrar_Base_A_MariaDB_Servicio.exe",
+    "Resguardar_Datos_Ventas.exe",
+    "reparaciones_python_instalador.zip",
+    "Actualizacion_*.exe",
+    "Actualizacion_*.zip",
+    "ActualizadorCodigo.cs",
+    "backup_*.php",
+    "ventas_reparaciones_actualizacion_*.log"
 )
 Write-CleanInstallerConfig -VentasPath (Join-Path $payloadRoot "htdocs\VENTAS")
 Write-CleanArcaConfig -VentasPath (Join-Path $payloadRoot "htdocs\VENTAS")
@@ -450,8 +444,6 @@ $rootFiles = @(
     "apache_stop.bat",
     "mysql_start.bat",
     "mysql_stop.bat",
-    "xampp-control.exe",
-    "xampp-control.ini",
     "ventas.ico",
     "setup_xampp.bat"
 )
@@ -472,26 +464,94 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 
 class ControlVentasReparaciones
 {
+    static string launcherLog = "";
+
+    static void Log(string mensaje)
+    {
+        string linea = "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + mensaje;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(launcherLog));
+            File.AppendAllText(launcherLog, linea + Environment.NewLine);
+        }
+        catch
+        {
+        }
+    }
+
+    static void LogTail(string titulo, string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                Log(titulo + ": archivo inexistente: " + path);
+                return;
+            }
+            string[] lineas = File.ReadAllLines(path);
+            Log(titulo + ": ultimas lineas de " + path);
+            foreach (string linea in lineas.Skip(Math.Max(0, lineas.Length - 80)))
+            {
+                Log(titulo + "> " + linea);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log(titulo + ": no se pudo leer el log: " + ex.Message);
+        }
+    }
+
     static int Main()
     {
         string root = DetectRoot();
-        string url = "http://localhost/VENTAS/publico/index.php?c=ventas&a=inicio";
+        string url = "http://127.0.0.1/VENTAS/publico/index.php?c=ventas&a=inicio";
         Process mysql = null;
         Process apache = null;
+        bool externalDatabase = UseExternalDatabase(root);
+        launcherLog = Path.Combine(root, "logs", "launcher.log");
         try
         {
+            Log("==== Inicio launcher ====");
+            Log("Root: " + root);
+            Log("Base de datos externa: " + (externalDatabase ? "SI" : "NO"));
+            Log("Deteniendo procesos locales anteriores.");
+            StopPort(80);
+            if (!externalDatabase)
+            {
+                StopPort(3306);
+            }
             StopLocalProcessesFromRoot(root);
             StopPort(8765);
-            mysql = StartMySql(root);
+            WaitForPortClosed("127.0.0.1", 80, 10000);
+            if (!externalDatabase)
+            {
+                WaitForPortClosed("127.0.0.1", 3306, 10000);
+            }
+            WaitForPortClosed("127.0.0.1", 8765, 10000);
+            if (externalDatabase)
+            {
+                Log("Usando MariaDB servicio.");
+                EnsureExternalDatabaseAvailable();
+            }
+            else
+            {
+                Log("Iniciando MySQL.");
+                mysql = StartMySql(root);
+            }
+            Log("Iniciando Apache.");
             apache = StartApache(root);
-            StartReparaciones(root);
+            Log("Esperando Apache en 127.0.0.1:80.");
             WaitForPort("127.0.0.1", 80, 15000);
+            EnsureApplicationReady(root, url);
+            Log("Abriendo navegador: " + url);
             OpenBrowserAppAndWait(root, url);
+            Log("Navegador cerrado.");
             return 0;
         }
         catch (Exception ex)
@@ -503,15 +563,23 @@ class ControlVentasReparaciones
             catch
             {
             }
+            Log("ERROR FATAL: " + ex.ToString());
+            LogTail("MYSQL", Path.Combine(root, "mysql", "data", "mysql_error.log"));
+            LogTail("APACHE", Path.Combine(root, "apache", "logs", "error.log"));
             System.Windows.Forms.MessageBox.Show("No se pudo iniciar Ventas y Reparaciones. Revise control_ventas_error.log.", "Ventas y Reparaciones", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error);
             return 1;
         }
         finally
         {
+            Log("Deteniendo servicios locales.");
             StopProcess(apache);
-            StopMySqlGracefully(root, mysql);
+            if (!externalDatabase)
+            {
+                StopMySqlGracefully(root, mysql);
+            }
             StopPort(8765);
             StopLocalProcessesFromRoot(root);
+            Log("==== Fin launcher ====");
         }
     }
 
@@ -522,7 +590,32 @@ class ControlVentasReparaciones
         {
             return dir;
         }
-        return @"C:\VentasReparacionesApp";
+        return @"C:\Users\Public\VentasReparacionesApp";
+    }
+
+    static bool UseExternalDatabase(string root)
+    {
+        return File.Exists(Path.Combine(root, "usar_mariadb_servicio.txt"));
+    }
+
+    static void EnsureExternalDatabaseAvailable()
+    {
+        if (IsPortOpen("127.0.0.1", 3306))
+        {
+            return;
+        }
+
+        string[] services = { "MariaDB", "mariadb", "MySQL", "mysql", "MySQL80", "MySQL57" };
+        foreach (string service in services)
+        {
+            RunHiddenNoThrow("sc.exe", "start " + service, Environment.CurrentDirectory, 15000);
+            if (WaitForPortNoThrow("127.0.0.1", 3306, 8000))
+            {
+                Log("MariaDB servicio iniciado: " + service);
+                return;
+            }
+        }
+        throw new Exception("No esta iniciado MariaDB servicio en 127.0.0.1:3306.");
     }
 
     static bool IsPortOpen(string host, int port)
@@ -549,17 +642,41 @@ class ControlVentasReparaciones
 
     static void WaitForPort(string host, int port, int timeoutMs)
     {
+        if (WaitForPortNoThrow(host, port, timeoutMs))
+        {
+            return;
+        }
+        throw new Exception("No inicio el servidor local en el puerto " + port.ToString() + ".");
+    }
+
+    static bool WaitForPortNoThrow(string host, int port, int timeoutMs)
+    {
         int waited = 0;
         while (waited < timeoutMs)
         {
             if (IsPortOpen(host, port))
             {
-                return;
+                return true;
             }
             Thread.Sleep(500);
             waited += 500;
         }
-        throw new Exception("No inicio el servidor local en el puerto " + port.ToString() + ".");
+        return false;
+    }
+
+    static void WaitForPortClosed(string host, int port, int timeoutMs)
+    {
+        int waited = 0;
+        while (waited < timeoutMs)
+        {
+            if (!IsPortOpen(host, port))
+            {
+                return;
+            }
+            Thread.Sleep(250);
+            waited += 250;
+        }
+        throw new Exception("No se pudo liberar el puerto local " + port.ToString() + ".");
     }
 
     static Process StartMySql(string root)
@@ -569,6 +686,23 @@ class ControlVentasReparaciones
             return null;
         }
 
+        RepairMySqlRuntime(root, false);
+        try
+        {
+            return StartMySqlOnce(root);
+        }
+        catch (Exception ex)
+        {
+            Log("MySQL fallo al iniciar. Se intenta reparacion profunda: " + ex.Message);
+            StopPort(3306);
+            Thread.Sleep(1500);
+            RepairMySqlRuntime(root, true);
+            return StartMySqlOnce(root);
+        }
+    }
+
+    static Process StartMySqlOnce(string root)
+    {
         string exe = Path.Combine(root, "mysql", "bin", "mysqld.exe");
         string ini = Path.Combine(root, "mysql", "bin", "my.ini");
         if (!File.Exists(exe))
@@ -585,7 +719,111 @@ class ControlVentasReparaciones
         info.WindowStyle = ProcessWindowStyle.Hidden;
         Process proceso = Process.Start(info);
         WaitForPort("127.0.0.1", 3306, 20000);
+        Thread.Sleep(1500);
+        if (proceso == null || proceso.HasExited || !IsPortOpen("127.0.0.1", 3306))
+        {
+            throw new Exception("MySQL inicio pero no se mantuvo activo.");
+        }
         return proceso;
+    }
+
+    static void RepairMySqlRuntime(string root, bool restoreSystemTables)
+    {
+        string data = Path.Combine(root, "mysql", "data");
+        if (!Directory.Exists(data))
+        {
+            return;
+        }
+        DeleteFileNoThrow(Path.Combine(data, "mysql.pid"));
+        DeleteFileNoThrow(Path.Combine(data, "ibtmp1"));
+        foreach (string file in Directory.GetFiles(data, "aria_log*", SearchOption.TopDirectoryOnly))
+        {
+            DeleteFileNoThrow(file);
+        }
+
+        string aria = Path.Combine(root, "mysql", "bin", "aria_chk.exe");
+        if (File.Exists(aria))
+        {
+            foreach (string table in Directory.GetFiles(data, "*.MAI", SearchOption.AllDirectories))
+            {
+                RunHiddenNoThrow(aria, "-r \"" + table + "\"", root, 20000);
+            }
+        }
+
+        if (!restoreSystemTables)
+        {
+            return;
+        }
+        string mysqlData = Path.Combine(data, "mysql");
+        string mysqlBackup = Path.Combine(root, "mysql", "backup", "mysql");
+        if (!Directory.Exists(mysqlBackup))
+        {
+            return;
+        }
+        try
+        {
+            if (Directory.Exists(mysqlData))
+            {
+                string roto = Path.Combine(data, "mysql_roto_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+                Directory.Move(mysqlData, roto);
+            }
+            CopyDirectory(mysqlBackup, mysqlData);
+            Log("MySQL: tablas internas restauradas desde mysql\\backup.");
+        }
+        catch (Exception ex)
+        {
+            Log("MySQL: no se pudieron restaurar tablas internas: " + ex.Message);
+        }
+    }
+
+    static void DeleteFileNoThrow(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.SetAttributes(path, FileAttributes.Normal);
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    static void RunHiddenNoThrow(string exe, string args, string workingDirectory, int timeoutMs)
+    {
+        try
+        {
+            ProcessStartInfo info = new ProcessStartInfo();
+            info.FileName = exe;
+            info.Arguments = args;
+            info.WorkingDirectory = workingDirectory;
+            info.UseShellExecute = false;
+            info.CreateNoWindow = true;
+            using (Process proceso = Process.Start(info))
+            {
+                proceso.WaitForExit(timeoutMs);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (string dir in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+        {
+            Directory.CreateDirectory(dir.Replace(source, destination));
+        }
+        foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+        {
+            string target = file.Replace(source, destination);
+            Directory.CreateDirectory(Path.GetDirectoryName(target));
+            File.Copy(file, target, true);
+        }
     }
 
     static Process StartApache(string root)
@@ -615,18 +853,19 @@ class ControlVentasReparaciones
 
     static void StartReparaciones(string root)
     {
-        string vbs = Path.Combine(root, "htdocs", "VENTAS", "reparaciones_python", "abrir_reparaciones.vbs");
-        if (!File.Exists(vbs))
+        string carpeta = Path.Combine(root, "htdocs", "VENTAS", "reparaciones_python");
+        string launcher = Path.Combine(carpeta, "CONTROL REPARACIONES.exe");
+        if (!File.Exists(launcher))
         {
             return;
         }
 
         ProcessStartInfo info = new ProcessStartInfo();
-        info.FileName = "wscript.exe";
-        info.Arguments = "\"" + vbs + "\"";
-        info.WorkingDirectory = Path.GetDirectoryName(vbs);
+        info.FileName = launcher;
+        info.WorkingDirectory = carpeta;
         info.UseShellExecute = false;
         info.CreateNoWindow = true;
+        info.WindowStyle = ProcessWindowStyle.Hidden;
         Process.Start(info);
     }
 
@@ -673,7 +912,137 @@ class ControlVentasReparaciones
         Process proceso = Process.Start(info);
         if (proceso != null)
         {
-            proceso.WaitForExit();
+            while (!proceso.WaitForExit(2000))
+            {
+                EnsureLocalServers(root);
+            }
+        }
+    }
+
+    static void EnsureLocalServers(string root)
+    {
+        if (!IsPortOpen("127.0.0.1", 3306))
+        {
+            Log("SUPERVISOR: MySQL no responde. Se reinicia.");
+            StartMySql(root);
+        }
+        else if (!IsMySqlHealthy(root))
+        {
+            Log("SUPERVISOR: MySQL responde por puerto pero falla la consulta. Se repara y reinicia.");
+            StopPort(3306);
+            Thread.Sleep(1500);
+            RepairMySqlRuntime(root, true);
+            StartMySql(root);
+        }
+        if (!IsPortOpen("127.0.0.1", 80))
+        {
+            Log("SUPERVISOR: Apache no responde. Se reinicia.");
+            StartApache(root);
+        }
+        else if (!IsHttpReady("http://127.0.0.1/VENTAS/publico/index.php?c=ventas&a=inicio", 2500))
+        {
+            Log("SUPERVISOR: Apache tiene puerto abierto pero la pagina no responde. Se reinicia.");
+            StopPort(80);
+            Thread.Sleep(1000);
+            StartApache(root);
+        }
+    }
+
+    static void EnsureApplicationReady(string root, string url)
+    {
+        for (int intento = 1; intento <= 3; intento++)
+        {
+            if (IsHttpReady(url, 5000))
+            {
+                Log("HTTP listo: " + url);
+                return;
+            }
+            Log("HTTP no listo. Intento " + intento.ToString() + "/3. Reiniciando Apache.");
+            StopPort(80);
+            Thread.Sleep(1000);
+            StartApache(root);
+            Thread.Sleep(1500);
+        }
+        Log("HTTP no respondio despues de los reintentos. Se deja Apache/MySQL activos y se abre el navegador para mostrar el error real: " + url);
+    }
+
+    static bool IsHttpReady(string url, int timeoutMs)
+    {
+        try
+        {
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+            request.Method = "GET";
+            request.Timeout = timeoutMs;
+            request.ReadWriteTimeout = timeoutMs;
+            request.AllowAutoRedirect = true;
+            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+            {
+                int code = (int)response.StatusCode;
+                return code >= 200 && code < 500;
+            }
+        }
+        catch (WebException ex)
+        {
+            string detalle = ex.Message;
+            try
+            {
+                HttpWebResponse response = ex.Response as HttpWebResponse;
+                if (response != null)
+                {
+                    detalle = "HTTP " + ((int)response.StatusCode).ToString() + " " + response.StatusDescription;
+                    response.Close();
+                }
+            }
+            catch
+            {
+            }
+            Log("HTTP no listo: " + detalle);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Log("HTTP no listo: " + ex.Message);
+            return false;
+        }
+    }
+
+    static bool IsMySqlHealthy(string root)
+    {
+        string mysql = Path.Combine(root, "mysql", "bin", "mysql.exe");
+        if (!File.Exists(mysql))
+        {
+            return false;
+        }
+        try
+        {
+            ProcessStartInfo info = new ProcessStartInfo();
+            info.FileName = mysql;
+            info.Arguments = "--user=root --batch --skip-column-names -e \"SELECT 1; CREATE DATABASE IF NOT EXISTS sistema_ventas; USE sistema_ventas; SELECT COUNT(*) FROM productos;\"";
+            info.WorkingDirectory = root;
+            info.UseShellExecute = false;
+            info.CreateNoWindow = true;
+            info.RedirectStandardError = true;
+            info.RedirectStandardOutput = true;
+            using (Process proceso = Process.Start(info))
+            {
+                if (!proceso.WaitForExit(5000))
+                {
+                    try { proceso.Kill(); } catch { }
+                    return false;
+                }
+                string error = proceso.StandardError.ReadToEnd();
+                if (proceso.ExitCode != 0)
+                {
+                    Log("SUPERVISOR MYSQL ERROR: " + error);
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log("SUPERVISOR MYSQL CHECK ERROR: " + ex.Message);
+            return false;
         }
     }
 
@@ -868,48 +1237,190 @@ using System.Reflection;
 
 class InstaladorVentasReparaciones
 {
+    static readonly string PublicInstallerLog = @"C:\Users\Public\ventas_reparaciones_instalador.log";
+    static string InstalledInstallerLog = "";
+
+    static void Log(string mensaje)
+    {
+        string linea = "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + mensaje;
+        Console.WriteLine(linea);
+        try
+        {
+            File.AppendAllText(PublicInstallerLog, linea + Environment.NewLine);
+        }
+        catch
+        {
+        }
+        try
+        {
+            if (!String.IsNullOrEmpty(InstalledInstallerLog))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(InstalledInstallerLog));
+                File.AppendAllText(InstalledInstallerLog, linea + Environment.NewLine);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    static void LogTail(string titulo, string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                Log(titulo + ": archivo inexistente: " + path);
+                return;
+            }
+            string[] lineas = File.ReadAllLines(path);
+            Log(titulo + ": ultimas lineas de " + path);
+            foreach (string linea in lineas.Skip(Math.Max(0, lineas.Length - 80)))
+            {
+                Log(titulo + "> " + linea);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log(titulo + ": no se pudo leer el log: " + ex.Message);
+        }
+    }
+
     static int Main()
     {
-        string destino = @"C:\VentasReparacionesApp";
+        string destino = @"C:\Users\Public\VentasReparacionesApp";
         string backup = Path.Combine(Path.GetTempPath(), "ventas_reparaciones_backup");
         string payload = Path.Combine(Path.GetTempPath(), "ventas_reparaciones_payload.zip");
 
         try
         {
             Console.Title = "Instalador Ventas y Reparaciones";
-            Console.WriteLine("Instalando Ventas y Reparaciones...");
-            Console.WriteLine("Destino: " + destino);
+            Log("==== Inicio instalador version 2026-06-03.1 ====");
+            Log("Instalando Ventas y Reparaciones...");
+            Log("Destino: " + destino);
 
+            Log("ETAPA: detener servidores anteriores.");
             StopLocalServers(destino);
-            BackupData(destino, backup);
+            Log("ETAPA: limpieza total de instalaciones anteriores.");
+            CleanPreviousInstallations(destino, backup, payload);
+            Log("ETAPA: extraer payload incorporado.");
             ExtractPayload(payload);
 
-            if (Directory.Exists(destino))
-            {
-                DeleteDirectoryWithRetries(destino);
-            }
-
-            ZipFile.ExtractToDirectory(payload, @"C:\");
-            RestoreData(destino, backup);
+            Directory.CreateDirectory(Path.GetDirectoryName(destino));
+            ZipFile.ExtractToDirectory(payload, Path.GetDirectoryName(destino));
+            InstalledInstallerLog = Path.Combine(destino, "logs", "instalador.log");
+            Log("ETAPA: payload extraido.");
+            Log("ETAPA: asignar permisos de escritura.");
+            GrantWritePermissions(destino);
+            Log("ETAPA: inicializar y validar base de datos limpia.");
             InitializeBlankDatabaseIfNeeded(destino, backup);
+            Log("ETAPA: crear accesos directos.");
             CreateShortcuts(destino);
 
-            Console.WriteLine("");
-            Console.WriteLine("Instalacion terminada.");
-            Console.WriteLine("Use el acceso directo Ventas y Reparaciones del Escritorio.");
-            Console.WriteLine("No hace falta instalar XAMPP, PHP, MySQL ni Python.");
+            Log("Instalacion terminada.");
+            Log("Use el acceso directo Ventas y Reparaciones del Escritorio.");
+            Log("No hace falta instalar XAMPP, PHP, MySQL ni Python.");
             return 0;
         }
         catch (Exception ex)
         {
+            Log("ERROR FATAL: " + ex.ToString());
+            LogTail("MYSQL", Path.Combine(destino, "mysql", "data", "mysql_error.log"));
+            LogTail("APACHE", Path.Combine(destino, "apache", "logs", "error.log"));
             Console.WriteLine("");
             Console.WriteLine("No se pudo instalar.");
-            Console.WriteLine(ex.Message);
-            Console.WriteLine("");
+            Console.WriteLine("Log persistente: " + PublicInstallerLog);
             Console.WriteLine("Pruebe ejecutar este instalador como administrador.");
             Console.WriteLine("Presione una tecla para cerrar...");
             Console.ReadKey();
             return 1;
+        }
+    }
+
+    static void CleanPreviousInstallations(string destino, string backup, string payload)
+    {
+        DeleteDirectoryIfExists(backup);
+        DeleteFileIfExists(payload);
+        DeleteDirectoryIfExists(destino);
+        DeleteDirectoryIfExists(@"C:\VentasReparacionesApp");
+        DeleteDirectoryIfExists(@"C:\Ventas y Reparaciones");
+        DeleteDirectoryIfExists(@"C:\xampp82");
+        DeleteDirectoryIfExists(Path.Combine(Path.GetTempPath(), "ventas_reparaciones_backup"));
+        DeleteFileIfExists(Path.Combine(Path.GetTempPath(), "ventas_reparaciones_payload.zip"));
+        DeleteDirectoryIfExists(@"C:\Windows\Temp\ventas_reparaciones_backup");
+        DeleteFileIfExists(@"C:\Windows\Temp\ventas_reparaciones_payload.zip");
+        foreach (string dir in Directory.GetDirectories(Path.GetTempPath(), "ventas_reparaciones_*", SearchOption.TopDirectoryOnly))
+        {
+            DeleteDirectoryIfExists(dir);
+        }
+        if (Directory.Exists(@"C:\Windows\Temp"))
+        {
+            foreach (string dir in Directory.GetDirectories(@"C:\Windows\Temp", "ventas_reparaciones_*", SearchOption.TopDirectoryOnly))
+            {
+                DeleteDirectoryIfExists(dir);
+            }
+        }
+        CleanPublicGeneratedBackups();
+    }
+
+    static void CleanPublicGeneratedBackups()
+    {
+        string publico = Environment.GetFolderPath(Environment.SpecialFolder.CommonDocuments);
+        if (string.IsNullOrWhiteSpace(publico))
+        {
+            publico = @"C:\Users\Public\Documents";
+        }
+        string raizPublica = Directory.GetParent(publico) != null ? Directory.GetParent(publico).FullName : @"C:\Users\Public";
+        if (!Directory.Exists(raizPublica))
+        {
+            return;
+        }
+
+        string[] carpetas = {
+            "backup_*",
+            "VentasReparacionesBackupCodigo_*"
+        };
+        foreach (string patron in carpetas)
+        {
+            foreach (string dir in Directory.GetDirectories(raizPublica, patron, SearchOption.TopDirectoryOnly))
+            {
+                DeleteDirectoryIfExists(dir);
+            }
+        }
+
+        string[] archivos = {
+            "ventas_reparaciones_actualizacion_*.log",
+            "backup_*.php"
+        };
+        foreach (string patron in archivos)
+        {
+            foreach (string archivo in Directory.GetFiles(raizPublica, patron, SearchOption.TopDirectoryOnly))
+            {
+                DeleteFileIfExists(archivo);
+            }
+        }
+    }
+
+    static void DeleteDirectoryIfExists(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            DeleteDirectoryWithRetries(path);
+        }
+    }
+
+    static void DeleteFileIfExists(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.SetAttributes(path, FileAttributes.Normal);
+                File.Delete(path);
+            }
+        }
+        catch
+        {
         }
     }
 
@@ -926,6 +1437,28 @@ class InstaladorVentasReparaciones
         CopyFileIfExists(Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "reparaciones.db"), Path.Combine(backup, "reparaciones.db"));
         CopyFileIfExists(Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "comercio_config.json"), Path.Combine(backup, "comercio_config.json"));
         CopyDirIfExists(Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "tickets"), Path.Combine(backup, "tickets"));
+
+        string instalacionAppReciente = @"C:\VentasReparacionesApp";
+        if (!Directory.Exists(Path.Combine(backup, "mysql_data")))
+        {
+            CopyDirIfExists(Path.Combine(instalacionAppReciente, "mysql", "data"), Path.Combine(backup, "mysql_data"));
+        }
+        if (!Directory.Exists(Path.Combine(backup, "almacenamiento")))
+        {
+            CopyDirIfExists(Path.Combine(instalacionAppReciente, "htdocs", "VENTAS", "almacenamiento"), Path.Combine(backup, "almacenamiento"));
+        }
+        if (!File.Exists(Path.Combine(backup, "reparaciones.db")))
+        {
+            CopyFileIfExists(Path.Combine(instalacionAppReciente, "htdocs", "VENTAS", "reparaciones_python", "reparaciones.db"), Path.Combine(backup, "reparaciones.db"));
+        }
+        if (!File.Exists(Path.Combine(backup, "comercio_config.json")))
+        {
+            CopyFileIfExists(Path.Combine(instalacionAppReciente, "htdocs", "VENTAS", "reparaciones_python", "comercio_config.json"), Path.Combine(backup, "comercio_config.json"));
+        }
+        if (!Directory.Exists(Path.Combine(backup, "tickets")))
+        {
+            CopyDirIfExists(Path.Combine(instalacionAppReciente, "htdocs", "VENTAS", "reparaciones_python", "tickets"), Path.Combine(backup, "tickets"));
+        }
 
         string instalacionAppAnterior = @"C:\Ventas y Reparaciones";
         if (!Directory.Exists(Path.Combine(backup, "mysql_data")))
@@ -1123,32 +1656,201 @@ class InstaladorVentasReparaciones
 
     static void RestoreData(string destino, string backup)
     {
-        CopyDirIfExists(Path.Combine(backup, "mysql_data"), Path.Combine(destino, "mysql", "data"));
+        // No restaurar mysql_data automaticamente: si la base anterior esta corrupta, copiarla rompe la instalacion nueva.
         CopyDirIfExists(Path.Combine(backup, "almacenamiento"), Path.Combine(destino, "htdocs", "VENTAS", "almacenamiento"));
         CopyFileIfExists(Path.Combine(backup, "reparaciones.db"), Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "reparaciones.db"));
         CopyFileIfExists(Path.Combine(backup, "comercio_config.json"), Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "comercio_config.json"));
         CopyDirIfExists(Path.Combine(backup, "tickets"), Path.Combine(destino, "htdocs", "VENTAS", "reparaciones_python", "tickets"));
     }
 
+    static void GrantWritePermissions(string destino)
+    {
+        RunIcacls(destino, "/grant *S-1-5-32-545:(OI)(CI)M /T /C");
+        RunIcacls(destino, "/grant *S-1-1-0:(OI)(CI)M /T /C");
+    }
+
+    static void RunIcacls(string destino, string args)
+    {
+        try
+        {
+            ProcessStartInfo info = new ProcessStartInfo();
+            info.FileName = "icacls.exe";
+            info.Arguments = "\"" + destino + "\" " + args;
+            info.UseShellExecute = false;
+            info.CreateNoWindow = true;
+            using (Process proceso = Process.Start(info))
+            {
+                proceso.WaitForExit(60000);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    static void ResetDatabaseIfBroken(string destino, string cleanMysqlData)
+    {
+        if (!Directory.Exists(cleanMysqlData))
+        {
+            return;
+        }
+        string mysql = Path.Combine(destino, "mysql", "bin", "mysql.exe");
+        string data = Path.Combine(destino, "mysql", "data");
+        if (!File.Exists(mysql) || !Directory.Exists(data))
+        {
+            return;
+        }
+
+        bool broken = false;
+        try
+        {
+            StartMySql(destino);
+            string error = "";
+            int code = RunMysqlInline(mysql,
+                "CREATE DATABASE IF NOT EXISTS sistema_ventas; " +
+                "USE sistema_ventas; " +
+                "SELECT COUNT(*) FROM configuraciones; " +
+                "SELECT COUNT(*) FROM listas_precios; " +
+                "SELECT COUNT(*) FROM clientes;",
+                destino,
+                out error);
+            broken = code != 0 && IsMysqlEngineBroken(error);
+            if (code != 0 && !broken)
+            {
+                broken = error.IndexOf("doesn't exist", StringComparison.OrdinalIgnoreCase) >= 0
+                    || error.IndexOf("does not exist", StringComparison.OrdinalIgnoreCase) >= 0
+                    || error.IndexOf("Unknown database", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            broken = IsMysqlEngineBroken(ex.Message);
+        }
+
+        if (!broken)
+        {
+            return;
+        }
+
+        Console.WriteLine("Base de datos rota detectada. Se reinstala una base limpia.");
+        StopPort(3306);
+        System.Threading.Thread.Sleep(1500);
+        DeleteDirectoryWithRetries(data);
+        CopyDirIfExists(cleanMysqlData, data);
+        GrantWritePermissions(destino);
+        StartMySql(destino);
+        string schema = Path.Combine(destino, "htdocs", "VENTAS", "instalacion_schema.sql");
+        if (File.Exists(schema))
+        {
+            RunMysqlScript(mysql, schema, destino);
+        }
+    }
+
+    static bool IsMysqlEngineBroken(string texto)
+    {
+        if (texto == null)
+        {
+            return false;
+        }
+        return texto.IndexOf("1932", StringComparison.OrdinalIgnoreCase) >= 0
+            || texto.IndexOf("doesn't exist in engine", StringComparison.OrdinalIgnoreCase) >= 0
+            || texto.IndexOf("does not exist in engine", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     static void InitializeBlankDatabaseIfNeeded(string destino, string backup)
     {
-        if (Directory.Exists(Path.Combine(destino, "mysql", "data", "sistema_ventas")))
-        {
-            return;
-        }
-        if (Directory.Exists(Path.Combine(backup, "mysql_data")))
-        {
-            return;
-        }
         string schema = Path.Combine(destino, "htdocs", "VENTAS", "instalacion_schema.sql");
         if (!File.Exists(schema))
         {
-            return;
+            throw new Exception("No se encontro instalacion_schema.sql.");
         }
-        StartMySql(destino);
         string mysql = Path.Combine(destino, "mysql", "bin", "mysql.exe");
-        RunMysqlScript(mysql, schema, destino);
+        try
+        {
+            StartMySql(destino);
+            if (!Directory.Exists(Path.Combine(destino, "mysql", "data", "sistema_ventas")))
+            {
+                RunMysqlScript(mysql, schema, destino);
+            }
+            ValidateDatabase(mysql, destino);
+        }
+        catch (Exception ex)
+        {
+            Log("La primera inicializacion de MySQL fallo. Se reconstruye desde cero.");
+            Log("ERROR PRIMER INTENTO MYSQL: " + ex.ToString());
+            LogTail("MYSQL", Path.Combine(destino, "mysql", "data", "mysql_error.log"));
+            RebuildDatabaseFromPackagedBackup(destino, schema);
+            ValidateDatabase(mysql, destino);
+        }
     }
+
+    static void RebuildDatabaseFromPackagedBackup(string destino, string schema)
+    {
+        string mysqlRoot = Path.Combine(destino, "mysql");
+        string data = Path.Combine(mysqlRoot, "data");
+        string cleanData = Path.Combine(mysqlRoot, "backup");
+        if (!Directory.Exists(cleanData))
+        {
+            throw new Exception("No se encontro la base limpia mysql\\backup.");
+        }
+        StopPort(3306);
+        System.Threading.Thread.Sleep(1500);
+        DeleteDirectoryIfExists(data);
+        CopyDirIfExists(cleanData, data);
+        GrantWritePermissions(destino);
+        StartMySql(destino);
+        RunMysqlScript(Path.Combine(mysqlRoot, "bin", "mysql.exe"), schema, destino);
+    }
+
+    static void ValidateDatabase(string mysqlExe, string workingDirectory)
+    {
+        string error = "";
+        string sql =
+            "USE sistema_ventas; " +
+            "CHECK TABLE clientes, configuraciones, listas_precios, producto_precios, productos, stock, ventas; " +
+            "SELECT COUNT(*) FROM productos; " +
+            "SELECT COUNT(*) FROM stock; " +
+            "SELECT COUNT(*) FROM ventas; " +
+            "SELECT COUNT(*) FROM producto_precios; " +
+            "CREATE TABLE IF NOT EXISTS instalacion_autoprueba (id INT AUTO_INCREMENT PRIMARY KEY, nota VARCHAR(80) NOT NULL) ENGINE=InnoDB; " +
+            "INSERT INTO instalacion_autoprueba (nota) VALUES ('ok'); " +
+            "UPDATE instalacion_autoprueba SET nota='ok_actualizado' WHERE nota='ok'; " +
+            "DELETE FROM instalacion_autoprueba; " +
+            "DROP TABLE instalacion_autoprueba; " +
+            "INSERT INTO configuraciones (clave, valor, tipo, grupo) VALUES ('__instalador_prueba__', 'ok', 'texto', 'sistema') " +
+            "ON DUPLICATE KEY UPDATE valor=VALUES(valor); " +
+            "DELETE FROM configuraciones WHERE clave='__instalador_prueba__'; " +
+            "INSERT INTO listas_precios (nombre, activo) VALUES ('__INSTALADOR_PRUEBA__', 1); " +
+            "DELETE FROM listas_precios WHERE nombre='__INSTALADOR_PRUEBA__'; " +
+            "INSERT INTO clientes (nombre) VALUES ('__INSTALADOR_PRUEBA__'); " +
+            "DELETE FROM clientes WHERE nombre='__INSTALADOR_PRUEBA__';";
+        int code = RunMysqlInline(mysqlExe, sql, workingDirectory, out error);
+        if (code != 0)
+        {
+            throw new Exception("La autoprueba de base de datos fallo. " + error);
+        }
+        Log("Autoprueba de base de datos: OK.");
+    }
+
+    static int RunMysqlInline(string mysqlExe, string sql, string workingDirectory, out string error)
+    {
+        ProcessStartInfo info = new ProcessStartInfo();
+        info.FileName = mysqlExe;
+        info.Arguments = "--user=root --batch --skip-column-names -e \"" + sql.Replace("\"", "\\\"") + "\"";
+        info.WorkingDirectory = workingDirectory;
+        info.UseShellExecute = false;
+        info.CreateNoWindow = true;
+        info.RedirectStandardError = true;
+        info.RedirectStandardOutput = true;
+        using (Process proceso = Process.Start(info))
+        {
+            proceso.StandardOutput.ReadToEnd();
+            error = proceso.StandardError.ReadToEnd();
+            proceso.WaitForExit();
+            return proceso.ExitCode;
+        }
+    }
+
 
     static bool IsPortOpen(string host, int port)
     {

@@ -6,7 +6,6 @@ require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
 
 class ControladorClientes {
-
     private function permiso(): bool {
         $ok = false;
         if (!require_login()) {
@@ -32,7 +31,48 @@ class ControladorClientes {
                 "codigo_barras" => "c.dni",
                 "fecha" => "c.creado_en"
             ], "nombre", "ASC");
-            $clientes = Cliente::listar_todos($orden_clientes["sql"]);
+            global $container;
+            $listarClientes = $container->get(\Ventas\Aplicacion\Clientes\CasosUso\ListarClientes::class);
+            $clientes_dominio = $listarClientes->ejecutar();
+            $clientes = [];
+            foreach ($clientes_dominio as $cliente_dominio) {
+                $clientes[] = [
+                    "id" => $cliente_dominio->id(),
+                    "nombre" => $cliente_dominio->nombre(),
+                    "dni" => $cliente_dominio->documento(),
+                    "tipo_documento" => $cliente_dominio->tipoDocumento(),
+                    "condicion_iva" => $cliente_dominio->condicionIva(),
+                    "lista_precio_nombre" => $cliente_dominio->listaPrecioNombre(),
+                    "email" => $cliente_dominio->email(),
+                    "telefono" => $cliente_dominio->telefono(),
+                    "direccion" => $cliente_dominio->direccion(),
+                    "creado_en" => $cliente_dominio->creadoEn(),
+                ];
+            }
+            usort($clientes, function (array $a, array $b) use ($orden_clientes): int {
+                $campo = (string)($orden_clientes["campo"] ?? "nombre");
+                $direccion = strtoupper((string)($orden_clientes["direccion"] ?? "ASC"));
+                $columnas = [
+                    "nombre" => "nombre",
+                    "cliente" => "nombre",
+                    "descripcion" => "nombre",
+                    "codigo" => "dni",
+                    "codigo_barras" => "dni",
+                    "fecha" => "creado_en",
+                ];
+                $columna = $columnas[$campo] ?? "nombre";
+                $comparacion = strcasecmp((string)($a[$columna] ?? ""), (string)($b[$columna] ?? ""));
+
+                if ($comparacion === 0) {
+                    $comparacion = ((int)($a["id"] ?? 0)) <=> ((int)($b["id"] ?? 0));
+                }
+
+                if ($direccion === "DESC") {
+                    $comparacion *= -1;
+                }
+
+                return $comparacion;
+            });
             $texto_buscar = trim((string)obtener_get("buscar", ""));
             $campo_buscar = trim((string)obtener_get("campo", "todos"));
             $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));
@@ -127,13 +167,36 @@ class ControladorClientes {
                 flash_error("Consumidor Final (ID=1) no se puede editar.");
                 redirigir("index.php?c=clientes&a=index");
             } else {
-                $c = Cliente::buscar_por_id($id);
-                if ($c === null) {
+                global $container;
+                $buscarClientePorId = $container->get(\Ventas\Aplicacion\Clientes\CasosUso\BuscarClientePorId::class);
+                $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
+                $cliente_dominio = $buscarClientePorId->ejecutar($id);
+                if ($cliente_dominio === null) {
                     flash_error("Cliente no encontrado.");
                     redirigir("index.php?c=clientes&a=index");
                 } else {
+                    $c = [
+                        "id" => $cliente_dominio->id(),
+                        "nombre" => $cliente_dominio->nombre(),
+                        "dni" => $cliente_dominio->documento(),
+                        "tipo_documento" => $cliente_dominio->tipoDocumento(),
+                        "condicion_iva" => $cliente_dominio->condicionIva(),
+                        "email" => $cliente_dominio->email(),
+                        "telefono" => $cliente_dominio->telefono(),
+                        "direccion" => $cliente_dominio->direccion(),
+                        "id_lista_precio" => $cliente_dominio->idListaPrecio(),
+                        "creado_en" => $cliente_dominio->creadoEn(),
+                    ];
                     $modo = "editar";
-                    $listas_precios = ListaPrecio::listar(true);
+                    $listas_precios = [];
+                    foreach ($listarListasPrecios->ejecutar() as $lista_precio_dominio) {
+                        $listas_precios[] = [
+                            "id" => $lista_precio_dominio->id(),
+                            "nombre" => $lista_precio_dominio->nombre(),
+                            "activo" => $lista_precio_dominio->activo() ? 1 : 0,
+                            "creado_en" => $lista_precio_dominio->creadoEn(),
+                        ];
+                    }
                     include __DIR__ . "/../vistas/parciales/encabezado.php";
                     include __DIR__ . "/../vistas/clientes/formulario.php";
                     include __DIR__ . "/../vistas/parciales/pie.php";

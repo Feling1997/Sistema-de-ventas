@@ -2,5 +2,13 @@
     "require": {
         "dompdf/dompdf": "^3.1",
         "phpoffice/phpspreadsheet": "^5.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ventas\\Dominio\\": "src/dominio/",
+            "Ventas\\Aplicacion\\": "src/aplicacion/",
+            "Ventas\\Infraestructura\\": "src/infraestructura/",
+            "Ventas\\Presentacion\\": "src/presentacion/"
+        }
     }
 }

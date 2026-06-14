@@ -4,9 +4,9 @@ $campo_buscar = $campo_buscar ?? "todos";
 $metodo_buscar = $metodo_buscar ?? "contiene";
 $campos_busqueda = $campos_busqueda ?? [];
 $listas_precios = $listas_precios ?? [];
-$id_lista_precio_actual = isset($id_lista_precio_actual) ? (int)$id_lista_precio_actual : ListaPrecio::id_predeterminada();
+$id_lista_precio_actual = isset($id_lista_precio_actual) ? (int)$id_lista_precio_actual : 1;
 if ($id_lista_precio_actual <= 0)
-  $id_lista_precio_actual = ListaPrecio::id_predeterminada();
+  $id_lista_precio_actual = 1;
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3 section-heading">
   <div class="d-flex align-items-center gap-2">
@@ -94,9 +94,9 @@ if ($id_lista_precio_actual <= 0)
             <td><?= htmlspecialchars($p["stock_nombre"] ?? "") ?></td>
             <td><?= htmlspecialchars(stock_para_mostrar($p["stock_cantidad"] ?? 0, 4)) ?></td>
             <td><?= htmlspecialchars(numero_para_mostrar($p["factor_conversion"] ?? 0, 4)) ?></td>
-            <?php $precio_lista = ListaPrecio::precio_producto_cargado((int)$p["id"], $id_lista_precio_actual); ?>
-            <td><?= htmlspecialchars($precio_lista !== null && $precio_lista["precio"] > 0 ? numero_para_mostrar($precio_lista["porcentaje"], 2) : "SIN PRECIO") ?></td>
-            <td><?= htmlspecialchars($precio_lista !== null && $precio_lista["precio"] > 0 ? precio_para_mostrar($precio_lista["precio"]) : "SIN PRECIO") ?></td>
+            <?php $precio_lista_valor = (float)($p["precio_lista"] ?? 0); ?>
+            <td><?= htmlspecialchars($precio_lista_valor > 0 ? numero_para_mostrar($p["porcentaje_lista"] ?? 0, 2) : "SIN PRECIO") ?></td>
+            <td><?= htmlspecialchars($precio_lista_valor > 0 ? precio_para_mostrar($precio_lista_valor) : "SIN PRECIO") ?></td>
             <td><?= ((int)$p["activo"] === 1) ? "Alta" : "Baja" ?></td>
             <td>
               <div class="acciones-grid acciones-grid-compactas">

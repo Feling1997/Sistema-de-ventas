@@ -5,9 +5,152 @@ function registrar_log(string $etiqueta,string $mensaje):void{
     $carpeta=__DIR__."/../almacenamiento/logs";
     //si no existe la carpeta la creamos
     if(!is_dir($carpeta))
-        @mkdir($carpeta);
+        @mkdir($carpeta, 0777, true);
     $linea = "[" . date("Y-m-d H:i:s") . "] [$etiqueta] $mensaje\n";
     @file_put_contents($carpeta . "/app.log", $linea, FILE_APPEND);
+}
+
+function sanitizar_log_operacion($valor) {
+    $sensibles = ["clave", "password", "pass", "token", "csrf", "secret", "application_key"];
+    if (is_array($valor)) {
+        $limpio = [];
+        foreach ($valor as $clave => $item) {
+            $clave_texto = strtolower((string)$clave);
+            $ocultar = false;
+            foreach ($sensibles as $sensible) {
+                if (str_contains($clave_texto, $sensible)) {
+                    $ocultar = true;
+                    break;
+                }
+            }
+            $limpio[$clave] = $ocultar ? "***" : sanitizar_log_operacion($item);
+        }
+        return $limpio;
+    }
+    if (is_scalar($valor) || $valor === null) {
+        $texto = trim((string)$valor);
+        if (strlen($texto) > 700)
+            $texto = substr($texto, 0, 700) . "...";
+        return $texto;
+    }
+    return gettype($valor);
+}
+
+function registrar_operacion(string $evento, array $datos = []): void {
+    $carpeta = __DIR__ . "/../almacenamiento/logs";
+    if (!is_dir($carpeta))
+        @mkdir($carpeta, 0777, true);
+    $usuario = "";
+    $rol = "";
+    if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION["usuario_logueado"]) && is_array($_SESSION["usuario_logueado"])) {
+        $usuario = (string)($_SESSION["usuario_logueado"]["usuario"] ?? "");
+        $rol = (string)($_SESSION["usuario_logueado"]["rol"] ?? "");
+    }
+    $payload = [
+        "fecha" => date("Y-m-d H:i:s"),
+        "evento" => $evento,
+        "usuario" => $usuario,
+        "rol" => $rol,
+        "metodo" => (string)($_SERVER["REQUEST_METHOD"] ?? ""),
+        "uri" => (string)($_SERVER["REQUEST_URI"] ?? ""),
+        "ip" => (string)($_SERVER["REMOTE_ADDR"] ?? ""),
+        "datos" => sanitizar_log_operacion($datos),
+    ];
+    $linea = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($linea))
+        $linea = json_encode(["fecha" => date("Y-m-d H:i:s"), "evento" => $evento, "error" => "No se pudo serializar la operacion"]);
+    @file_put_contents($carpeta . "/operaciones.log", $linea . PHP_EOL, FILE_APPEND | LOCK_EX);
+}
+
+function iniciar_registro_global_fallas_php(): void {
+    static $iniciado = false;
+    if ($iniciado)
+        return;
+    $iniciado = true;
+    $carpeta = __DIR__ . "/../almacenamiento/logs";
+    if (!is_dir($carpeta))
+        @mkdir($carpeta, 0777, true);
+    @ini_set("log_errors", "1");
+    @ini_set("error_log", $carpeta . "/php_error.log");
+    register_shutdown_function(function (): void {
+        $error = error_get_last();
+        if (!is_array($error))
+            return;
+        $fatales = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR];
+        if (!in_array((int)($error["type"] ?? 0), $fatales, true))
+            return;
+        registrar_log("PHP::fatal", (string)($error["message"] ?? "") . " en " . (string)($error["file"] ?? "") . ":" . (string)($error["line"] ?? ""));
+        registrar_operacion("php.fatal", [
+            "tipo" => (int)($error["type"] ?? 0),
+            "mensaje" => (string)($error["message"] ?? ""),
+            "archivo" => (string)($error["file"] ?? ""),
+            "linea" => (int)($error["line"] ?? 0),
+        ]);
+    });
+}
+
+iniciar_registro_global_fallas_php();
+
+function asegurar_columna_bd(PDO $pdo, string $tabla, string $columna, string $sql_alter): bool {
+    try {
+        $st = $pdo->prepare("SHOW COLUMNS FROM `$tabla` LIKE ?");
+        $st->execute([$columna]);
+        if (!$st->fetch())
+            $pdo->exec($sql_alter);
+        return true;
+    } catch (Throwable $e) {
+        registrar_log("Migracion::$tabla.$columna", $e->getMessage());
+        registrar_operacion("migracion.columna.error", [
+            "tabla" => $tabla,
+            "columna" => $columna,
+            "error" => $e->getMessage(),
+        ]);
+        return false;
+    }
+}
+
+function asegurar_indice_bd(PDO $pdo, string $tabla, string $indice, string $sql_alter): bool {
+    try {
+        $st = $pdo->prepare("SHOW INDEX FROM `$tabla` WHERE Key_name = ?");
+        $st->execute([$indice]);
+        if (!$st->fetch())
+            $pdo->exec($sql_alter);
+        return true;
+    } catch (Throwable $e) {
+        registrar_log("Migracion::$tabla.$indice", $e->getMessage());
+        registrar_operacion("migracion.indice.error", [
+            "tabla" => $tabla,
+            "indice" => $indice,
+            "error" => $e->getMessage(),
+        ]);
+        return false;
+    }
+}
+
+function asegurar_tabla_configuraciones(PDO $pdo): bool {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS configuraciones (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            clave VARCHAR(120) NOT NULL,
+            valor LONGTEXT NULL,
+            tipo VARCHAR(40) NOT NULL DEFAULT 'texto',
+            grupo VARCHAR(60) NOT NULL DEFAULT 'sistema',
+            UNIQUE KEY uq_configuraciones_clave (clave),
+            KEY idx_configuraciones_grupo (grupo)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $ok = true;
+        $ok = asegurar_columna_bd($pdo, "configuraciones", "clave", "ALTER TABLE configuraciones ADD COLUMN clave VARCHAR(120) NOT NULL AFTER id") && $ok;
+        $ok = asegurar_columna_bd($pdo, "configuraciones", "valor", "ALTER TABLE configuraciones ADD COLUMN valor LONGTEXT NULL AFTER clave") && $ok;
+        $ok = asegurar_columna_bd($pdo, "configuraciones", "tipo", "ALTER TABLE configuraciones ADD COLUMN tipo VARCHAR(40) NOT NULL DEFAULT 'texto' AFTER valor") && $ok;
+        $ok = asegurar_columna_bd($pdo, "configuraciones", "grupo", "ALTER TABLE configuraciones ADD COLUMN grupo VARCHAR(60) NOT NULL DEFAULT 'sistema' AFTER tipo") && $ok;
+        asegurar_indice_bd($pdo, "configuraciones", "idx_configuraciones_grupo", "ALTER TABLE configuraciones ADD KEY idx_configuraciones_grupo (grupo)");
+        asegurar_indice_bd($pdo, "configuraciones", "uq_configuraciones_clave", "ALTER TABLE configuraciones ADD UNIQUE KEY uq_configuraciones_clave (clave)");
+        return $ok;
+    } catch (Throwable $e) {
+        registrar_log("Migracion::configuraciones", $e->getMessage());
+        registrar_operacion("migracion.configuraciones.error", ["error" => $e->getMessage()]);
+        return false;
+    }
 }
 
 function texto_invalido($texto):bool{
@@ -121,6 +264,7 @@ function configuraciones_defecto_db(): array {
         "productos_etiquetas" => "1",
         "productos_importacion_excel" => "1",
         "productos_reglas_automaticas" => "0",
+        "productos_cotizacion_dolar" => "1",
         "clientes_campos_extra" => "0",
         "clientes_validar_documento" => "0",
         "clientes_lista_defecto" => "",
@@ -185,15 +329,7 @@ function config_todas(): array {
             $pdo = obtener_pdo();
             if ($pdo !== null) {
                 try {
-                    $pdo->exec("CREATE TABLE IF NOT EXISTS configuraciones (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        clave VARCHAR(120) NOT NULL,
-                        valor LONGTEXT NULL,
-                        tipo VARCHAR(40) NOT NULL DEFAULT 'texto',
-                        grupo VARCHAR(60) NOT NULL DEFAULT 'sistema',
-                        UNIQUE KEY uq_configuraciones_clave (clave),
-                        KEY idx_configuraciones_grupo (grupo)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                    asegurar_tabla_configuraciones($pdo);
                     $st = $pdo->query("SELECT clave, valor FROM configuraciones");
                     $rows = $st ? $st->fetchAll() : [];
                     foreach ($rows as $row)
@@ -532,6 +668,8 @@ function config_sistema_simple(): array {
     if (!is_file($archivo))
         return array_merge($defecto, $datos_db);
     $json = @file_get_contents($archivo);
+    if (is_string($json))
+        $json = preg_replace('/^\xEF\xBB\xBF/', '', $json);
     $datos = is_string($json) ? json_decode($json, true) : null;
     if (!is_array($datos))
         return array_merge($defecto, $datos_db);
@@ -640,4 +778,5 @@ function menu_guardar_preferencias_usuario(int $id_usuario, string $rol, array $
 
 function redirigir(string $url): void {
     header("Location: $url");
+    exit;
 }

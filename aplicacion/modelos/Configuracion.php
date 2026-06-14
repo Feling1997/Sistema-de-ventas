@@ -257,19 +257,14 @@ class Configuracion {
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
-                $pdo->exec("CREATE TABLE IF NOT EXISTS configuraciones (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    clave VARCHAR(120) NOT NULL,
-                    valor LONGTEXT NULL,
-                    tipo VARCHAR(40) NOT NULL DEFAULT 'texto',
-                    grupo VARCHAR(60) NOT NULL DEFAULT 'sistema',
-                    UNIQUE KEY uq_configuraciones_clave (clave),
-                    KEY idx_configuraciones_grupo (grupo)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                asegurar_tabla_configuraciones($pdo);
                 self::sembrar_defectos($pdo);
                 $ok = true;
             } catch (Throwable $e) {
                 registrar_log("Configuracion::asegurar_tabla", $e->getMessage());
+                registrar_operacion("configuracion.asegurar_tabla.error", [
+                    "error" => $e->getMessage(),
+                ]);
             }
         }
         return $ok;
@@ -326,7 +321,18 @@ class Configuracion {
                 if ($pdo->inTransaction())
                     $pdo->rollBack();
                 registrar_log("Configuracion::guardar", $e->getMessage());
+                registrar_operacion("configuracion.modelo.guardar.error", [
+                    "error" => $e->getMessage(),
+                    "campos" => array_keys($datos),
+                    "datos" => $datos,
+                ]);
             }
+        } else {
+            registrar_operacion("configuracion.modelo.guardar.error", [
+                "error" => $pdo === null ? "Sin conexion PDO" : "No se pudo asegurar tabla configuraciones",
+                "campos" => array_keys($datos),
+                "datos" => $datos,
+            ]);
         }
         return $ok;
     }
@@ -419,7 +425,7 @@ class Configuracion {
             $tipo = "color";
         elseif (in_array($clave, ["ticket_imagen_completa", "ticket_logo_termico"], true) || str_starts_with($clave, "mostrar_") || str_contains($clave, "_habilitado") || str_contains($clave, "_auto") || str_contains($clave, "_sonido") || str_contains($clave, "_toasts") || str_contains($clave, "_alertas") || str_contains($clave, "_logs") || str_contains($clave, "_animaciones") || str_contains($clave, "_sombras") || str_contains($clave, "_escaner") || str_contains($clave, "_etiquetas"))
             $tipo = "booleano";
-        elseif (str_contains($clave, "decimales") || str_contains($clave, "tiempo") || str_contains($clave, "tamano") || str_contains($clave, "radio") || $clave === "punto_venta" || $clave === "navbar_boton_opacidad")
+        elseif (str_contains($clave, "decimales") || str_contains($clave, "tiempo") || str_contains($clave, "tamano") || str_contains($clave, "radio") || $clave === "punto_venta" || $clave === "navbar_boton_opacidad" || $clave === "productos_cotizacion_dolar")
             $tipo = "numero";
         elseif (str_contains($clave, "logo") || str_contains($clave, "favicon") || str_contains($clave, "imagen"))
             $tipo = "archivo";
@@ -462,6 +468,8 @@ class Configuracion {
             $texto = $texto === "1" ? "1" : "0";
         elseif ($tipo === "color")
             $texto = preg_match('/^#[0-9a-fA-F]{6}$/', $texto) ? $texto : (string)($meta["defecto"] ?? "#000000");
+        elseif ($clave === "productos_cotizacion_dolar")
+            $texto = (string)max(0.0001, (float)str_replace(",", ".", $texto));
         elseif ($tipo === "numero")
             $texto = (string)max(0, (int)$texto);
         elseif ($clave === "tema_modo")

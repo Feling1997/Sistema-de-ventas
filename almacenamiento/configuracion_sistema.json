@@ -18,6 +18,7 @@
     "ticket_fuente": "Courier New",
     "ticket_tamano_fuente": "12",
     "controlar_stock_ventas": "0",
+    "productos_cotizacion_dolar": "2000",
     "balanza_modo": "auto",
     "balanza_plu_digitos": "1",
     "balanza_valor_decimales": "0",

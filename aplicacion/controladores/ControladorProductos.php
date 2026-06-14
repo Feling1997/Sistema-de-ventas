@@ -19,16 +19,54 @@ class ControladorProductos {
     private function permiso(): bool {
         $ok = false;
         if (!require_login()) {
-            flash_error("Tenés que iniciar sesión.");
+            flash_error("Ten??s que iniciar sesi??n.");
             redirigir("index.php?c=auth&a=login");
         } else {
             if (!require_rol(["ADMIN","VENDEDOR"])) {
-                flash_error("No tenés permisos para Productos.");
+                flash_error("No ten??s permisos para Productos.");
                 redirigir("index.php?c=ventas&a=lista");
             } else
                 $ok = true;
         }
         return $ok;
+    }
+
+    private function stockDominioAArray(object $stock): array {
+        return [
+            "id" => $stock->id(),
+            "nombre" => $stock->nombre(),
+            "unidad" => $stock->unidad(),
+            "tipo_stock" => $stock->tipoStock(),
+            "cantidad" => $stock->cantidad(),
+            "stock_minimo" => $stock->stockMinimo(),
+            "stock_maximo" => $stock->stockMaximo(),
+            "precio_costo" => $stock->precioCosto(),
+            "moneda_costo" => $stock->monedaCosto(),
+            "costo_origen" => $stock->costoOrigen(),
+            "activo" => $stock->activo() ? 1 : 0,
+            "unidad_decimales" => $stock->unidadDecimales(),
+            "creado_en" => $stock->creadoEn(),
+        ];
+    }
+
+    private function listaPrecioDominioAArray(object $lista): array {
+        return [
+            "id" => $lista->id(),
+            "nombre" => $lista->nombre(),
+            "activo" => $lista->activo() ? 1 : 0,
+            "creado_en" => $lista->creadoEn(),
+        ];
+    }
+
+    private function unidadMedidaDominioAArray(object $unidad): array {
+        return [
+            "id" => $unidad->id(),
+            "nombre" => $unidad->nombre(),
+            "abreviatura" => $unidad->abreviatura(),
+            "tipo" => $unidad->tipo(),
+            "decimales" => $unidad->decimales(),
+            "activo" => $unidad->activo() ? 1 : 0,
+        ];
     }
 
     private function listar_stock_para_select(): array {
@@ -125,28 +163,34 @@ class ControladorProductos {
 
     public function index(): void {
         if ($this->permiso()) {
+            global $container;
+            $listarProductosVista = $container->get(\Ventas\Aplicacion\Productos\CasosUso\ListarProductosVista::class);
+            $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
+            $obtenerListaPrecioPredeterminada = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ObtenerListaPrecioPredeterminada::class);
             $orden_productos = orden_parametros([
-                "nombre" => "p.nombre",
-                "descripcion" => "p.nombre",
-                "codigo" => "p.cod_barras",
-                "codigo_barras" => "p.cod_barras",
-                "precio" => "p.precio_final",
-                "stock" => "s.cantidad",
-                "estado" => "p.activo",
-                "fecha" => "p.creado_en"
+                "nombre" => "nombre",
+                "descripcion" => "nombre",
+                "codigo" => "codigo",
+                "codigo_barras" => "codigo_barras",
+                "precio" => "precio",
+                "stock" => "stock",
+                "estado" => "estado",
+                "fecha" => "fecha"
             ], "nombre", "ASC");
-            $productos = Producto::listar_todos($orden_productos["sql"]);
             $texto_buscar = trim((string)obtener_get("buscar", ""));
             $campo_buscar = trim((string)obtener_get("campo", "todos"));
             $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));
-            $listas_precios = ListaPrecio::listar(true);
-            $id_lista_precio_actual = (int)obtener_get("id_lista_precio", ListaPrecio::id_predeterminada());
+            $listas_precios = [];
+            foreach ($listarListasPrecios->ejecutar() as $lista_dominio)
+                $listas_precios[] = $this->listaPrecioDominioAArray($lista_dominio);
+            $id_lista_precio_actual = (int)obtener_get("id_lista_precio", $obtenerListaPrecioPredeterminada->ejecutar());
             if ($id_lista_precio_actual <= 0)
-                $id_lista_precio_actual = ListaPrecio::id_predeterminada();
+                $id_lista_precio_actual = $obtenerListaPrecioPredeterminada->ejecutar();
+            $productos = $listarProductosVista->ejecutar((string)$orden_productos["campo"], (string)$orden_productos["direccion"], $id_lista_precio_actual);
             $campos_busqueda = [
                 "id" => "ID",
                 "nombre" => "Nombre",
-                "cod_barras" => "Código de barras",
+                "cod_barras" => "C??digo de barras",
                 "stock_nombre" => "Stock",
                 "stock_cantidad" => "Cantidad stock",
                 "factor_conversion" => "Factor",
@@ -175,9 +219,11 @@ class ControladorProductos {
                 $precio = $costo;
                 $porcentaje = 0;
             }
-            if ($precio <= 0 && $costo > 0)
+            if (!ListaPrecio::es_lista_costo($lista) && $costo > 0 && $porcentaje > 0)
                 $precio = $costo * (1 + ($porcentaje / 100));
-            if ($porcentaje <= 0 && $costo > 0 && $precio > 0)
+            else if ($precio <= 0 && $costo > 0)
+                $precio = $costo * (1 + ($porcentaje / 100));
+            if (!ListaPrecio::es_lista_costo($lista) && $porcentaje <= 0 && $costo > 0 && $precio > 0)
                 $porcentaje = (($precio / $costo) - 1) * 100;
             if (ListaPrecio::es_lista_costo($lista))
                 $porcentaje = 0;
@@ -187,31 +233,45 @@ class ControladorProductos {
 
     public function nuevo(): void {
         if ($this->permiso()) {
-            $listas_precios = ListaPrecio::listar(true);
+            global $container;
+            $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
+            $listarStockGeneral = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStockGeneral::class);
+            $listarUnidadesMedida = $container->get(\Ventas\Aplicacion\UnidadesMedida\CasosUso\ListarUnidadesMedida::class);
+            $listas_precios = [];
+            foreach ($listarListasPrecios->ejecutar() as $lista_dominio)
+                $listas_precios[] = $this->listaPrecioDominioAArray($lista_dominio);
             if (count($listas_precios) === 0) {
                 flash_error("Primero carga una lista de precios.");
                 redirigir("index.php?c=listas_precios&a=index");
-                return;
-            }
-            $modo = "crear";
-            $id_stock_pre = (int)obtener_get("id_stock", 0);
-            if ($id_stock_pre <= 0)
-                $id_stock_pre = 0;
-            if ($id_stock_pre > 0) {
-                $stock_pre = Stock::buscar_por_id($id_stock_pre);
-                if ($stock_pre === null || (string)($stock_pre["tipo_stock"] ?? "") !== "general" || (int)($stock_pre["activo"] ?? 0) !== 1)
+            } else {
+                $stocks = [];
+                foreach ($listarStockGeneral->ejecutar() as $stock_dominio)
+                    $stocks[] = $this->stockDominioAArray($stock_dominio);
+                $unidades_medida = [];
+                foreach ($listarUnidadesMedida->ejecutar() as $unidad_dominio)
+                    $unidades_medida[] = $this->unidadMedidaDominioAArray($unidad_dominio);
+                $modo = "crear";
+                $id_stock_pre = (int)obtener_get("id_stock", 0);
+                if ($id_stock_pre <= 0)
                     $id_stock_pre = 0;
+                if ($id_stock_pre > 0) {
+                    $stock_pre_encontrado = false;
+                    foreach ($stocks as $stock_item) {
+                        if ((int)($stock_item["id"] ?? 0) === $id_stock_pre)
+                            $stock_pre_encontrado = true;
+                    }
+                    if (!$stock_pre_encontrado)
+                        $id_stock_pre = 0;
+                }
+                $nombre_stock_pre = trim((string)obtener_get("nombre_stock", ""));
+                if (texto_invalido($nombre_stock_pre))
+                    $nombre_stock_pre = "";
+                $p = ["id" => 0, "nombre" => ($nombre_stock_pre !== "" ? $nombre_stock_pre : ""), "cod_barras" => "", "id_stock" => ($id_stock_pre > 0 ? $id_stock_pre : null), "id_asociado" => null, "factor_conversion" => 1, "ganancia" => 0, "precio_final" => 0, "activo" => 1, "usa_stock_general" => ($id_stock_pre > 0 ? 1 : 0), "stock_unidad" => "u", "stock_cantidad" => 0, "stock_minimo" => 0, "stock_maximo" => 0, "stock_precio_costo" => 0, "stock_moneda_costo" => "ARS", "stock_costo_origen" => 0];
+                $precios_producto = [];
+                include __DIR__ . "/../vistas/parciales/encabezado.php";
+                include __DIR__ . "/../vistas/productos/formulario.php";
+                include __DIR__ . "/../vistas/parciales/pie.php";
             }
-            $nombre_stock_pre = trim((string)obtener_get("nombre_stock", ""));
-            if (texto_invalido($nombre_stock_pre))
-                $nombre_stock_pre = "";
-            $p = ["id" => 0, "nombre" => ($nombre_stock_pre !== "" ? $nombre_stock_pre : ""), "cod_barras" => "", "id_stock" => ($id_stock_pre > 0 ? $id_stock_pre : null), "id_asociado" => null, "factor_conversion" => 1, "ganancia" => 0, "precio_final" => 0, "activo" => 1, "usa_stock_general" => ($id_stock_pre > 0 ? 1 : 0), "stock_unidad" => "u", "stock_cantidad" => 0, "stock_minimo" => 0, "stock_maximo" => 0, "stock_precio_costo" => 0];
-            $stocks = $this->listar_stock_para_select();
-            $unidades_medida = $this->listar_unidades();
-            $precios_producto = [];
-            include __DIR__ . "/../vistas/parciales/encabezado.php";
-            include __DIR__ . "/../vistas/productos/formulario.php";
-            include __DIR__ . "/../vistas/parciales/pie.php";
         }
     }
 
@@ -338,6 +398,7 @@ class ControladorProductos {
                     $stock_minimo = parsear_numero_form(obtener_post("stock_minimo", 0), 0);
                     $stock_maximo = parsear_numero_form(obtener_post("stock_maximo", 0), 0);
                     $precio_costo_form = parsear_numero_form(obtener_post("precio_costo", 0), 0);
+                    $moneda_costo = strtoupper(trim((string)obtener_post("moneda_costo", "ARS"))) === "USD" ? "USD" : "ARS";
                     $activo = (int)obtener_post("activo", 1);
                     $id_stock = 0;
                     if ($id_stock_raw !== "" && ctype_digit($id_stock_raw))
@@ -370,7 +431,7 @@ class ControladorProductos {
                                 $error = "El consumo por venta debe ser mayor a cero.";
                             if (!$usa_stock_general) {
                                 $unidad_stock = UnidadMedida::asegurar_desde_form($unidad_stock, $this->datos_nueva_unidad_post());
-                                $id_stock = Stock::crear_retornar_id_con_tipo($nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio");
+                                $id_stock = Stock::crear_retornar_id_con_tipo($nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio", $moneda_costo);
                                 if ($id_stock <= 0)
                                     $error = "No se pudo crear el stock automatico del producto.";
                             }
@@ -423,7 +484,7 @@ class ControladorProductos {
                 $p = ["id" => 0, "nombre" => $nombre, "cod_barras" => $cod_barras, "id_stock" => ($id_stock_pre > 0 ? $id_stock_pre : null),
                     "id_asociado" => null, "factor_conversion" => $factor_conversion, "ganancia" => $ganancia,
                     "precio_final" => $precio_manual ?? 0, "activo" => $activo, "usa_stock_general" => !empty($usa_stock_general) ? 1 : 0,
-                    "stock_unidad" => $unidad_stock ?? "u", "stock_cantidad" => $cantidad_stock ?? 0, "stock_minimo" => $stock_minimo ?? 0, "stock_maximo" => $stock_maximo ?? 0, "stock_precio_costo" => $precio_costo_form ?? 0];
+                    "stock_unidad" => $unidad_stock ?? "u", "stock_cantidad" => $cantidad_stock ?? 0, "stock_minimo" => $stock_minimo ?? 0, "stock_maximo" => $stock_maximo ?? 0, "stock_precio_costo" => Stock::costo_en_pesos($precio_costo_form ?? 0, $moneda_costo ?? "ARS"), "stock_moneda_costo" => $moneda_costo ?? "ARS", "stock_costo_origen" => $precio_costo_form ?? 0];
                 $stocks = $this->listar_stock_para_select();
                 $unidades_medida = $this->listar_unidades();
                 $listas_precios = ListaPrecio::listar(true);
@@ -437,22 +498,33 @@ class ControladorProductos {
 
     public function editar(): void {
         if ($this->permiso()) {
+            global $container;
+            $buscarProductoFormularioPorId = $container->get(\Ventas\Aplicacion\Productos\CasosUso\BuscarProductoFormularioPorId::class);
+            $obtenerPreciosProducto = $container->get(\Ventas\Aplicacion\Productos\CasosUso\ObtenerPreciosProducto::class);
+            $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
+            $listarStockGeneral = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStockGeneral::class);
+            $listarUnidadesMedida = $container->get(\Ventas\Aplicacion\UnidadesMedida\CasosUso\ListarUnidadesMedida::class);
             $id = (int)obtener_get("id", 0);
-            $p = Producto::buscar_por_id($id);
+            $p = $buscarProductoFormularioPorId->ejecutar($id);
             if ($p === null) {
                 flash_error("Producto no encontrado.");
                 redirigir("index.php?c=productos&a=index");
             } else {
                 $modo = "editar";
                 $id_stock_actual = (int)($p["id_stock"] ?? 0);
-                $p["usa_stock_general"] = $this->producto_usa_stock_general($p) ? 1 : 0;
                 $datos_form = obtener_form_data("productos_form");
                 if ($datos_form !== [])
                     $p = array_merge($p, $datos_form);
-                $stocks = $this->listar_stock_para_select();
-                $unidades_medida = $this->listar_unidades();
-                $listas_precios = ListaPrecio::listar(true);
-                $precios_producto = ListaPrecio::precios_producto($id);
+                $stocks = [];
+                foreach ($listarStockGeneral->ejecutar() as $stock_dominio)
+                    $stocks[] = $this->stockDominioAArray($stock_dominio);
+                $unidades_medida = [];
+                foreach ($listarUnidadesMedida->ejecutar() as $unidad_dominio)
+                    $unidades_medida[] = $this->unidadMedidaDominioAArray($unidad_dominio);
+                $listas_precios = [];
+                foreach ($listarListasPrecios->ejecutar() as $lista_dominio)
+                    $listas_precios[] = $this->listaPrecioDominioAArray($lista_dominio);
+                $precios_producto = $obtenerPreciosProducto->ejecutar($id);
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/productos/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -485,6 +557,7 @@ class ControladorProductos {
                         $stock_minimo = parsear_numero_form(obtener_post("stock_minimo", 0), 0);
                         $stock_maximo = parsear_numero_form(obtener_post("stock_maximo", 0), 0);
                         $precio_costo_form = parsear_numero_form(obtener_post("precio_costo", 0), 0);
+                        $moneda_costo = strtoupper(trim((string)obtener_post("moneda_costo", "ARS"))) === "USD" ? "USD" : "ARS";
                         $activo = (int)obtener_post("activo", 1);
                         if (texto_invalido($nombre))
                             $error = "Nombre inválido (vacío o placeholder).";
@@ -523,10 +596,10 @@ class ControladorProductos {
                                     if (!$usaba_stock_general && $id_stock_anterior > 0 && Stock::contar_productos_asociados($id_stock_anterior) <= 1) {
                                         $id_stock = $id_stock_anterior;
                                         $unidad_stock = UnidadMedida::asegurar_desde_form($unidad_stock, $this->datos_nueva_unidad_post());
-                                        Stock::actualizar_con_tipo($id_stock, $nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio");
+                                        Stock::actualizar_con_tipo($id_stock, $nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio", $moneda_costo);
                                     } else {
                                         $unidad_stock = UnidadMedida::asegurar_desde_form($unidad_stock, $this->datos_nueva_unidad_post());
-                                        $id_stock = Stock::crear_retornar_id_con_tipo($nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio");
+                                        $id_stock = Stock::crear_retornar_id_con_tipo($nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio", $moneda_costo);
                                         if ($id_stock <= 0)
                                             $error = "No se pudo crear el stock automatico del producto.";
                                     }
@@ -587,7 +660,9 @@ class ControladorProductos {
                     "stock_cantidad" => $cantidad_stock ?? ($p_actual["stock_cantidad"] ?? 0),
                     "stock_minimo" => $stock_minimo ?? 0,
                     "stock_maximo" => $stock_maximo ?? 0,
-                    "stock_precio_costo" => $precio_costo_form ?? 0,
+                    "stock_precio_costo" => Stock::costo_en_pesos($precio_costo_form ?? 0, $moneda_costo ?? "ARS"),
+                    "stock_moneda_costo" => $moneda_costo ?? "ARS",
+                    "stock_costo_origen" => $precio_costo_form ?? 0,
                 ]);
                 $id_redirigir = (int)($id ?? 0);
                 if ($id_redirigir > 0)
@@ -628,52 +703,17 @@ class ControladorProductos {
         if ($this->permiso()) {
             if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
                 flash_error("Acceso invalido.");
-                redirigir("index.php?c=productos&a=index");
-                return;
-            }
-            $pdo = obtener_pdo();
-            if ($pdo === null) {
-                flash_error("Sin conexion a base de datos.");
-                redirigir("index.php?c=productos&a=index");
-                return;
-            }
-            try {
-                $pdo->beginTransaction();
-                $st = $pdo->query("SELECT p.id, p.id_stock FROM productos p WHERE NOT EXISTS (SELECT 1 FROM detalle_venta d WHERE d.id_producto = p.id)");
-                $productos = $st ? ($st->fetchAll() ?: []) : [];
-                $ids_productos = [];
-                $ids_stock = [];
-                foreach ($productos as $p) {
-                    $ids_productos[] = (int)$p["id"];
-                    $id_stock = (int)($p["id_stock"] ?? 0);
-                    if ($id_stock > 0)
-                        $ids_stock[] = $id_stock;
-                }
-                if (count($ids_productos) === 0) {
-                    $pdo->commit();
+            } else {
+                global $container;
+                $eliminarProductosNoVendidos = $container->get(\Ventas\Aplicacion\Productos\CasosUso\EliminarProductosNoVendidos::class);
+                $eliminados = $eliminarProductosNoVendidos->ejecutar();
+                if ($eliminados > 0)
+                    flash_ok("Productos sin ventas eliminados: " . $eliminados . ".");
+                else
                     flash_ok("No hay productos sin ventas para eliminar.");
-                    redirigir("index.php?c=productos&a=index");
-                    return;
-                }
-                foreach (array_chunk($ids_productos, 500) as $chunk) {
-                    $placeholders = implode(",", array_fill(0, count($chunk), "?"));
-                    $pdo->prepare("DELETE FROM producto_precios WHERE id_producto IN ($placeholders)")->execute($chunk);
-                    $pdo->prepare("DELETE FROM productos WHERE id IN ($placeholders)")->execute($chunk);
-                }
-                $stocks_eliminados = 0;
-                foreach (array_values(array_unique($ids_stock)) as $id_stock) {
-                    if (Stock::contar_productos_asociados((int)$id_stock) === 0 && Stock::eliminar((int)$id_stock))
-                        $stocks_eliminados++;
-                }
-                $pdo->commit();
-                flash_ok("Productos sin ventas eliminados: " . count($ids_productos) . ". Stocks eliminados: " . $stocks_eliminados . ".");
-            } catch (Throwable $e) {
-                if ($pdo->inTransaction())
-                    $pdo->rollBack();
-                registrar_log("Productos::eliminar_no_vendidos", $e->getMessage());
-                flash_error("No se pudo completar la limpieza. Revisa logs.");
             }
             redirigir("index.php?c=productos&a=index");
         }
     }
+
 }

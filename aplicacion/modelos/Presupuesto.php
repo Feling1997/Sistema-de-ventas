@@ -45,6 +45,7 @@ class Presupuesto {
             if ($id_cliente <= 0)
                 $id_cliente = 1;
             $pdo->beginTransaction();
+            $id_usuario = Venta::asegurar_usuario_sistema($pdo, $id_usuario);
             $total = 0.0;
             foreach ($carrito as $it)
                 $total += Venta::calcular_subtotal((float)($it["cantidad"] ?? 0), (float)($it["precio_unit"] ?? 0), (float)($it["descuento"] ?? 0));

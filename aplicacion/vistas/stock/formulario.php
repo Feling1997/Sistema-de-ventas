@@ -16,7 +16,8 @@ $tipo_stock = (string)($s["tipo_stock"] ?? "general");
 $cantidad = (string)($s["cantidad"] ?? "0");
 $stock_minimo = (string)($s["stock_minimo"] ?? "0");
 $stock_maximo = (string)($s["stock_maximo"] ?? "0");
-$precio_costo = (string)($s["precio_costo"] ?? "0");
+$moneda_costo = strtoupper((string)($s["moneda_costo"] ?? "ARS")) === "USD" ? "USD" : "ARS";
+$precio_costo = (string)($s["costo_origen"] ?? $s["precio_costo"] ?? "0");
 $activo = (int)($s["activo"] ?? 1);
 $unidades_medida = $unidades_medida ?? [];
 $unidad_abbr_label = static function(string $abbr): string {
@@ -91,9 +92,17 @@ $precio_costo_visible = number_format(parsear_numero_form($precio_costo, 0), 2, 
           <label class="form-label">Stock maximo</label>
           <input type="number" step="0.001" min="0" class="form-control form-control-lg" name="stock_maximo" value="<?= htmlspecialchars($stock_maximo) ?>">
         </div>
-        <div class="col-md-6">
-          <label class="form-label">Costo</label>
+        <div class="col-md-3">
+          <label class="form-label">Moneda del costo</label>
+          <select class="form-select form-select-lg" name="moneda_costo">
+            <option value="ARS" <?= $moneda_costo === "ARS" ? "selected" : "" ?>>Pesos (ARS)</option>
+            <option value="USD" <?= $moneda_costo === "USD" ? "selected" : "" ?>>Dolares (USD)</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Costo en <?= $moneda_costo === "USD" ? "dolares" : "pesos" ?></label>
           <input type="text" inputmode="decimal" class="form-control form-control-lg money-input" name="precio_costo" value="<?= htmlspecialchars($precio_costo_visible) ?>" placeholder="1500,00">
+          <div class="form-text">Cotizacion actual: <?= htmlspecialchars(precio_para_mostrar(Stock::cotizacion_dolar())) ?> por USD.</div>
         </div>
       </div>
       <div class="mt-4 mb-4">

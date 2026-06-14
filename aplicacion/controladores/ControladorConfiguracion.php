@@ -2,6 +2,7 @@
 require_once __DIR__ . "/../modelos/Configuracion.php";
 require_once __DIR__ . "/../modelos/RespaldoSistema.php";
 require_once __DIR__ . "/../modelos/BackblazeB2.php";
+require_once __DIR__ . "/../modelos/Stock.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
@@ -93,12 +94,35 @@ class ControladorConfiguracion {
                 if ($seccion === "backup" && trim((string)($datos["backup_b2_application_key"] ?? "")) === "")
                     $datos["backup_b2_application_key"] = (string)($actual["backup_b2_application_key"] ?? "");
                 registrar_log("Configuracion", "Guardando seccion " . $seccion);
-                if (Configuracion::guardar($datos))
+                registrar_operacion("configuracion.guardar.intento", [
+                    "seccion" => $seccion,
+                    "campos" => array_keys($datos),
+                    "valores" => $datos,
+                ]);
+                $ok_guardado = Configuracion::guardar($datos);
+                if ($ok_guardado && $seccion === "productos" && array_key_exists("productos_cotizacion_dolar", $datos))
+                    Stock::recalcular_costos_por_cotizacion();
+                $verificacion = Configuracion::obtener_todo();
+                $verificados = [];
+                foreach ($datos as $clave => $valor)
+                    $verificados[$clave] = $verificacion[$clave] ?? null;
+                registrar_operacion("configuracion.guardar.resultado", [
+                    "seccion" => $seccion,
+                    "ok" => $ok_guardado ? "SI" : "NO",
+                    "valores_guardados" => $verificados,
+                ]);
+                if ($ok_guardado)
                     flash_ok("Configuracion guardada.");
                 else
                     flash_error("No se pudo guardar la configuracion. Revisa logs.");
-            } else
+            } else {
+                registrar_operacion("configuracion.guardar.rechazado", [
+                    "seccion" => $seccion,
+                    "error" => $error,
+                    "post" => $_POST,
+                ]);
                 flash_error($error);
+            }
             redirigir("index.php?c=configuracion&a=index&seccion=" . urlencode($seccion));
         }
     }

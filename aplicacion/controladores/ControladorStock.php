@@ -63,7 +63,51 @@ class ControladorStock {
                 "estado" => "s.activo",
                 "fecha" => "s.creado_en"
             ], "nombre", "ASC");
-            $items = Stock::listar_todos($orden_stock["sql"]);
+            global $container;
+            $listarStock = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStock::class);
+            $items = [];
+            foreach ($listarStock->ejecutar() as $stock_dominio) {
+                $items[] = [
+                    "id" => $stock_dominio->id(),
+                    "nombre" => $stock_dominio->nombre(),
+                    "unidad" => $stock_dominio->unidad(),
+                    "tipo_stock" => $stock_dominio->tipoStock(),
+                    "cantidad" => $stock_dominio->cantidad(),
+                    "stock_minimo" => $stock_dominio->stockMinimo(),
+                    "stock_maximo" => $stock_dominio->stockMaximo(),
+                    "precio_costo" => $stock_dominio->precioCosto(),
+                    "moneda_costo" => $stock_dominio->monedaCosto(),
+                    "costo_origen" => $stock_dominio->costoOrigen(),
+                    "activo" => $stock_dominio->activo() ? 1 : 0,
+                    "unidad_decimales" => $stock_dominio->unidadDecimales(),
+                    "creado_en" => $stock_dominio->creadoEn(),
+                ];
+            }
+            usort($items, function (array $a, array $b) use ($orden_stock): int {
+                $campo = (string)($orden_stock["campo"] ?? "nombre");
+                $direccion = strtoupper((string)($orden_stock["direccion"] ?? "ASC"));
+                $columnas = [
+                    "nombre" => "nombre",
+                    "descripcion" => "nombre",
+                    "stock" => "cantidad",
+                    "precio" => "precio_costo",
+                    "estado" => "activo",
+                    "fecha" => "creado_en",
+                ];
+                $columna = $columnas[$campo] ?? "nombre";
+                $valor_a = $a[$columna] ?? "";
+                $valor_b = $b[$columna] ?? "";
+                $comparacion = is_numeric($valor_a) && is_numeric($valor_b)
+                    ? ((float)$valor_a <=> (float)$valor_b)
+                    : strcasecmp((string)$valor_a, (string)$valor_b);
+                if ($comparacion === 0) {
+                    $comparacion = ((int)($a["id"] ?? 0)) <=> ((int)($b["id"] ?? 0));
+                }
+                if ($direccion === "DESC") {
+                    $comparacion *= -1;
+                }
+                return $comparacion;
+            });
             $texto_buscar = trim((string)obtener_get("buscar", ""));
             $campo_buscar = trim((string)obtener_get("campo", "todos"));
             $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));
@@ -94,11 +138,23 @@ class ControladorStock {
     public function nuevo(): void {
         if ($this->permiso()) {
             $modo = "crear";
-            $s = ["id" => 0, "nombre" => "", "unidad" => "u", "tipo_stock" => "general", "cantidad" => 0, "stock_minimo" => 0, "stock_maximo" => 0, "precio_costo" => 0, "activo" => 1];
+            $s = ["id" => 0, "nombre" => "", "unidad" => "u", "tipo_stock" => "general", "cantidad" => 0, "stock_minimo" => 0, "stock_maximo" => 0, "precio_costo" => 0, "moneda_costo" => "ARS", "costo_origen" => 0, "activo" => 1];
             $datos_form = obtener_form_data("stock_form");
             if ($datos_form !== [])
                 $s = array_merge($s, $datos_form);
-            $unidades_medida = UnidadMedida::listar(true);
+            global $container;
+            $listarUnidadesMedida = $container->get(\Ventas\Aplicacion\UnidadesMedida\CasosUso\ListarUnidadesMedida::class);
+            $unidades_medida = [];
+            foreach ($listarUnidadesMedida->ejecutar() as $unidad_medida_dominio) {
+                $unidades_medida[] = [
+                    "id" => $unidad_medida_dominio->id(),
+                    "nombre" => $unidad_medida_dominio->nombre(),
+                    "abreviatura" => $unidad_medida_dominio->abreviatura(),
+                    "tipo" => $unidad_medida_dominio->tipo(),
+                    "decimales" => $unidad_medida_dominio->decimales(),
+                    "activo" => $unidad_medida_dominio->activo() ? 1 : 0,
+                ];
+            }
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/stock/formulario.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -120,6 +176,7 @@ class ControladorStock {
                     $stock_minimo = parsear_numero_form(obtener_post("stock_minimo", 0), 0);
                     $stock_maximo = parsear_numero_form(obtener_post("stock_maximo", 0), 0);
                     $precio_costo = parsear_numero_form(obtener_post("precio_costo", 0), 0);
+                    $moneda_costo = strtoupper(trim((string)obtener_post("moneda_costo", "ARS"))) === "USD" ? "USD" : "ARS";
                     $activo = (int)obtener_post("activo", 1);
                     if (texto_invalido($nombre))
                         $error = "Nombre inválido (vacío o placeholder).";
@@ -135,7 +192,7 @@ class ControladorStock {
                             $stock_minimo = 0;
                         if ($stock_maximo < 0)
                             $stock_maximo = 0;
-                        $ok = Stock::crear_con_tipo($nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock);
+                        $ok = Stock::crear_con_tipo($nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock, $moneda_costo);
                         if ($ok) {
                             flash_ok("Stock creado correctamente.");
                             redirigir("index.php?c=stock&a=index");
@@ -156,6 +213,8 @@ class ControladorStock {
                     "stock_minimo" => $stock_minimo ?? 0,
                     "stock_maximo" => $stock_maximo ?? 0,
                     "precio_costo" => $precio_costo ?? 0,
+                    "moneda_costo" => $moneda_costo ?? "ARS",
+                    "costo_origen" => $precio_costo ?? 0,
                     "activo" => $activo ?? 1
                 ]);
                 redirigir("index.php?c=stock&a=nuevo");
@@ -166,16 +225,44 @@ class ControladorStock {
     public function editar(): void {
         if ($this->permiso()) {
             $id = (int)obtener_get("id", 0);
-            $s = Stock::buscar_por_id($id);
-            if ($s === null) {
+            global $container;
+            $buscarStockPorId = $container->get(\Ventas\Aplicacion\Stock\CasosUso\BuscarStockPorId::class);
+            $listarUnidadesMedida = $container->get(\Ventas\Aplicacion\UnidadesMedida\CasosUso\ListarUnidadesMedida::class);
+            $stock_dominio = $buscarStockPorId->ejecutar($id);
+            if ($stock_dominio === null) {
                 flash_error("Stock no encontrado.");
                 redirigir("index.php?c=stock&a=index");
             } else {
+                $s = [
+                    "id" => $stock_dominio->id(),
+                    "nombre" => $stock_dominio->nombre(),
+                    "unidad" => $stock_dominio->unidad(),
+                    "tipo_stock" => $stock_dominio->tipoStock(),
+                    "cantidad" => $stock_dominio->cantidad(),
+                    "stock_minimo" => $stock_dominio->stockMinimo(),
+                    "stock_maximo" => $stock_dominio->stockMaximo(),
+                    "precio_costo" => $stock_dominio->precioCosto(),
+                    "moneda_costo" => $stock_dominio->monedaCosto(),
+                    "costo_origen" => $stock_dominio->costoOrigen(),
+                    "activo" => $stock_dominio->activo() ? 1 : 0,
+                    "unidad_decimales" => $stock_dominio->unidadDecimales(),
+                    "creado_en" => $stock_dominio->creadoEn(),
+                ];
                 $modo = "editar";
                 $datos_form = obtener_form_data("stock_form");
                 if ($datos_form !== [])
                     $s = array_merge($s, $datos_form);
-                $unidades_medida = UnidadMedida::listar(true);
+                $unidades_medida = [];
+                foreach ($listarUnidadesMedida->ejecutar() as $unidad_medida_dominio) {
+                    $unidades_medida[] = [
+                        "id" => $unidad_medida_dominio->id(),
+                        "nombre" => $unidad_medida_dominio->nombre(),
+                        "abreviatura" => $unidad_medida_dominio->abreviatura(),
+                        "tipo" => $unidad_medida_dominio->tipo(),
+                        "decimales" => $unidad_medida_dominio->decimales(),
+                        "activo" => $unidad_medida_dominio->activo() ? 1 : 0,
+                    ];
+                }
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/stock/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -203,6 +290,7 @@ class ControladorStock {
                         $stock_minimo = parsear_numero_form(obtener_post("stock_minimo", 0), 0);
                         $stock_maximo = parsear_numero_form(obtener_post("stock_maximo", 0), 0);
                         $precio_costo = parsear_numero_form(obtener_post("precio_costo", 0), 0);
+                        $moneda_costo = strtoupper(trim((string)obtener_post("moneda_costo", "ARS"))) === "USD" ? "USD" : "ARS";
                         $activo = (int)obtener_post("activo", 1);
                         if (texto_invalido($nombre))
                             $error = "Nombre inválido (vacío o placeholder).";
@@ -218,10 +306,10 @@ class ControladorStock {
                                 $stock_minimo = 0;
                             if ($stock_maximo < 0)
                                 $stock_maximo = 0;
-                            $ok = Stock::actualizar_con_tipo($id, $nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock);
+                            $ok = Stock::actualizar_con_tipo($id, $nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock, $moneda_costo);
                             if ($ok) {
                                 $costo_anterior = (float)$s_actual["precio_costo"];
-                                $costo_nuevo = (float)$precio_costo;
+                                $costo_nuevo = Stock::costo_en_pesos((float)$precio_costo, $moneda_costo);
                                 if (abs($costo_anterior - $costo_nuevo) > 0.00001) {
                                     $ok_recalc = Stock::recalcular_precios_productos_por_stock($id);
                                     if ($ok_recalc)
@@ -249,6 +337,8 @@ class ControladorStock {
                     "stock_minimo" => $stock_minimo ?? 0,
                     "stock_maximo" => $stock_maximo ?? 0,
                     "precio_costo" => $precio_costo ?? 0,
+                    "moneda_costo" => $moneda_costo ?? "ARS",
+                    "costo_origen" => $precio_costo ?? 0,
                     "activo" => $activo ?? 1
                 ]);
                 $id_redirigir = (int)($id ?? 0);
@@ -318,13 +408,58 @@ class ControladorStock {
     public function productos(): void {
         if ($this->permiso()) {
             $id = (int)obtener_get("id", 0);
-            $s = Stock::buscar_por_id($id);
-            if ($s === null) {
+            global $container;
+            $buscarStockPorId = $container->get(\Ventas\Aplicacion\Stock\CasosUso\BuscarStockPorId::class);
+            $listarStock = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStock::class);
+            $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
+            $listarProductosPorStock = $container->get(\Ventas\Aplicacion\Productos\CasosUso\ListarProductosPorStock::class);
+            $stock_dominio = $buscarStockPorId->ejecutar($id);
+            if ($stock_dominio === null) {
                 flash_error("Stock no encontrado.");
                 redirigir("index.php?c=stock&a=index");
             } else {
-                $items = Stock::listar_todos();
-                $listas_precios = ListaPrecio::listar(true);
+                $s = [
+                    "id" => $stock_dominio->id(),
+                    "nombre" => $stock_dominio->nombre(),
+                    "unidad" => $stock_dominio->unidad(),
+                    "tipo_stock" => $stock_dominio->tipoStock(),
+                    "cantidad" => $stock_dominio->cantidad(),
+                    "stock_minimo" => $stock_dominio->stockMinimo(),
+                    "stock_maximo" => $stock_dominio->stockMaximo(),
+                    "precio_costo" => $stock_dominio->precioCosto(),
+                    "moneda_costo" => $stock_dominio->monedaCosto(),
+                    "costo_origen" => $stock_dominio->costoOrigen(),
+                    "activo" => $stock_dominio->activo() ? 1 : 0,
+                    "unidad_decimales" => $stock_dominio->unidadDecimales(),
+                    "creado_en" => $stock_dominio->creadoEn(),
+                ];
+                $items = [];
+                foreach ($listarStock->ejecutar() as $stock_item_dominio) {
+                    $items[] = [
+                        "id" => $stock_item_dominio->id(),
+                        "nombre" => $stock_item_dominio->nombre(),
+                        "unidad" => $stock_item_dominio->unidad(),
+                        "tipo_stock" => $stock_item_dominio->tipoStock(),
+                        "cantidad" => $stock_item_dominio->cantidad(),
+                        "stock_minimo" => $stock_item_dominio->stockMinimo(),
+                        "stock_maximo" => $stock_item_dominio->stockMaximo(),
+                        "precio_costo" => $stock_item_dominio->precioCosto(),
+                        "moneda_costo" => $stock_item_dominio->monedaCosto(),
+                        "costo_origen" => $stock_item_dominio->costoOrigen(),
+                        "activo" => $stock_item_dominio->activo() ? 1 : 0,
+                        "unidad_decimales" => $stock_item_dominio->unidadDecimales(),
+                        "creado_en" => $stock_item_dominio->creadoEn(),
+                    ];
+                }
+                $listas_precios = [];
+                foreach ($listarListasPrecios->ejecutar() as $lista_precio_dominio) {
+                    $listas_precios[] = [
+                        "id" => $lista_precio_dominio->id(),
+                        "nombre" => $lista_precio_dominio->nombre(),
+                        "activo" => $lista_precio_dominio->activo() ? 1 : 0,
+                        "creado_en" => $lista_precio_dominio->creadoEn(),
+                    ];
+                }
                 $orden_productos_stock = orden_parametros([
                     "nombre" => "nombre",
                     "descripcion" => "nombre",
@@ -335,7 +470,47 @@ class ControladorStock {
                     "estado" => "activo",
                     "fecha" => "creado_en"
                 ], "nombre", "ASC");
-                $productos = $this->listar_productos_por_stock($id, $orden_productos_stock["sql"]);
+                $productos = [];
+                foreach ($listarProductosPorStock->ejecutar($id) as $producto_dominio) {
+                    $productos[] = [
+                        "id" => $producto_dominio->id(),
+                        "nombre" => $producto_dominio->nombre(),
+                        "cod_barras" => $producto_dominio->codBarras(),
+                        "id_stock" => $producto_dominio->idStock(),
+                        "factor_conversion" => $producto_dominio->factorConversion(),
+                        "ganancia" => $producto_dominio->ganancia(),
+                        "precio_final" => $producto_dominio->precioFinal(),
+                        "activo" => $producto_dominio->activo() ? 1 : 0,
+                        "creado_en" => $producto_dominio->creadoEn(),
+                    ];
+                }
+                usort($productos, function (array $a, array $b) use ($orden_productos_stock): int {
+                    $campo = (string)($orden_productos_stock["campo"] ?? "nombre");
+                    $direccion = strtoupper((string)($orden_productos_stock["direccion"] ?? "ASC"));
+                    $columnas = [
+                        "nombre" => "nombre",
+                        "descripcion" => "nombre",
+                        "codigo" => "cod_barras",
+                        "codigo_barras" => "cod_barras",
+                        "precio" => "precio_final",
+                        "stock" => "factor_conversion",
+                        "estado" => "activo",
+                        "fecha" => "creado_en",
+                    ];
+                    $columna = $columnas[$campo] ?? "nombre";
+                    $valor_a = $a[$columna] ?? "";
+                    $valor_b = $b[$columna] ?? "";
+                    $comparacion = is_numeric($valor_a) && is_numeric($valor_b)
+                        ? ((float)$valor_a <=> (float)$valor_b)
+                        : strcasecmp((string)$valor_a, (string)$valor_b);
+                    if ($comparacion === 0) {
+                        $comparacion = ((int)($a["id"] ?? 0)) <=> ((int)($b["id"] ?? 0));
+                    }
+                    if ($direccion === "DESC") {
+                        $comparacion *= -1;
+                    }
+                    return $comparacion;
+                });
                 $texto_buscar = trim((string)obtener_get("buscar", ""));
                 $campo_buscar = trim((string)obtener_get("campo", "todos"));
                 $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));
@@ -360,7 +535,26 @@ class ControladorStock {
     public function exportar(): void {
         if ($this->permiso()) {
             $formato = strtolower((string)obtener_get("formato", "html"));
-            $items = Stock::listar_todos();
+            global $container;
+            $listarStock = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStock::class);
+            $items = [];
+            foreach ($listarStock->ejecutar() as $stock_dominio) {
+                $items[] = [
+                    "id" => $stock_dominio->id(),
+                    "nombre" => $stock_dominio->nombre(),
+                    "unidad" => $stock_dominio->unidad(),
+                    "tipo_stock" => $stock_dominio->tipoStock(),
+                    "cantidad" => $stock_dominio->cantidad(),
+                    "stock_minimo" => $stock_dominio->stockMinimo(),
+                    "stock_maximo" => $stock_dominio->stockMaximo(),
+                    "precio_costo" => $stock_dominio->precioCosto(),
+                    "moneda_costo" => $stock_dominio->monedaCosto(),
+                    "costo_origen" => $stock_dominio->costoOrigen(),
+                    "activo" => $stock_dominio->activo() ? 1 : 0,
+                    "unidad_decimales" => $stock_dominio->unidadDecimales(),
+                    "creado_en" => $stock_dominio->creadoEn(),
+                ];
+            }
             $titulo = "Stock actual";
             $base_archivo = "stock_actual";
             if ($formato === "csv" || $formato === "xls" || $formato === "excel") {
@@ -549,19 +743,21 @@ class ControladorStock {
     }
 
     private function listar_productos_por_stock(int $id_stock, string $orden_sql = "nombre ASC"): array {
+        global $container;
+        $listarProductosPorStock = $container->get(\Ventas\Aplicacion\Productos\CasosUso\ListarProductosPorStock::class);
         $lista = [];
-        $pdo = obtener_pdo();
-        if ($pdo !== null && $id_stock > 0) {
-            try {
-                $sql = "SELECT id, nombre, cod_barras, id_stock, factor_conversion, ganancia, precio_final, activo, creado_en FROM productos WHERE id_stock = ? ORDER BY " . $orden_sql . ", id ASC";
-                $st = $pdo->prepare($sql);
-                $st->execute([$id_stock]);
-                $rows = $st->fetchAll();
-                if (is_array($rows))
-                    $lista = $rows;
-            } catch (Throwable $e) {
-                registrar_log("ControladorStock::listar_productos_por_stock", $e->getMessage());
-            }
+        foreach ($listarProductosPorStock->ejecutar($id_stock) as $producto_dominio) {
+            $lista[] = [
+                "id" => $producto_dominio->id(),
+                "nombre" => $producto_dominio->nombre(),
+                "cod_barras" => $producto_dominio->codBarras(),
+                "id_stock" => $producto_dominio->idStock(),
+                "factor_conversion" => $producto_dominio->factorConversion(),
+                "ganancia" => $producto_dominio->ganancia(),
+                "precio_final" => $producto_dominio->precioFinal(),
+                "activo" => $producto_dominio->activo() ? 1 : 0,
+                "creado_en" => $producto_dominio->creadoEn(),
+            ];
         }
         return $lista;
     }

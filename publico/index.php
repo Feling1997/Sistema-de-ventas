@@ -1,9 +1,30 @@
 <?php
 
+require __DIR__ . "/../vendor/autoload.php";
+
+use Ventas\Infraestructura\Contenedor\Container;
+use Ventas\Infraestructura\Contenedor\RegistroClientes;
+use Ventas\Infraestructura\Contenedor\RegistroImpresoras;
+use Ventas\Infraestructura\Contenedor\RegistroListasPrecios;
+use Ventas\Infraestructura\Contenedor\RegistroProductos;
+use Ventas\Infraestructura\Contenedor\RegistroStock;
+use Ventas\Infraestructura\Contenedor\RegistroUsuarios;
+use Ventas\Infraestructura\Contenedor\RegistroVentas;
+use Ventas\Infraestructura\Ventas\NuevaVenta\RegistroNuevaVenta;
+
 require_once __DIR__ . "/../configuraciones/ayudas.php";
 require_once __DIR__ . "/../configuraciones/base_datos.php";
 require_once __DIR__ . "/../configuraciones/seguridad.php";
 require_once __DIR__ . "/../configuraciones/csrf.php";
+$container = new Container();
+RegistroClientes::registrar($container);
+RegistroUsuarios::registrar($container);
+RegistroStock::registrar($container);
+RegistroProductos::registrar($container);
+RegistroVentas::registrar($container);
+RegistroNuevaVenta::registrar($container);
+RegistroListasPrecios::registrar($container);
+RegistroImpresoras::registrar($container);
 $tiempo_inicio_request = microtime(true);
 $c=obtener_get("c","auth");//controlador
 $a=obtener_get("a","login");//accion

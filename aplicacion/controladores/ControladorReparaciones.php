@@ -22,11 +22,19 @@ class ControladorReparaciones {
     private function iniciar_servidor_python(): bool {
         $ok = false;
         $carpeta = realpath(__DIR__ . "/../../reparaciones_python");
-        $launcher = $carpeta !== false ? $carpeta . DIRECTORY_SEPARATOR . "abrir_reparaciones.vbs" : "";
+        $launcher = $carpeta !== false ? $carpeta . DIRECTORY_SEPARATOR . "CONTROL REPARACIONES.exe" : "";
         if ($launcher !== "" && is_file($launcher)) {
-            $comando = 'wscript.exe "' . $launcher . '"';
+            $comando = 'start "" /B "' . $launcher . '"';
             @pclose(@popen($comando, "r"));
             $ok = true;
+        } else if ($carpeta !== false) {
+            $pythonw = $carpeta . DIRECTORY_SEPARATOR . "python_runtime" . DIRECTORY_SEPARATOR . "pythonw.exe";
+            $web_app = $carpeta . DIRECTORY_SEPARATOR . "web_app.py";
+            if (is_file($pythonw) && is_file($web_app)) {
+                $comando = 'start "" /B "' . $pythonw . '" "' . $web_app . '" --no-browser';
+                @pclose(@popen($comando, "r"));
+                $ok = true;
+            }
         }
         return $ok;
     }
@@ -43,7 +51,7 @@ class ControladorReparaciones {
             <div class="module-shell">
               <?php if (!$servidor_iniciado): ?>
                 <div class="alert alert-warning mb-3">
-                  No se encontro el iniciador de Reparaciones. Revisar C:\xampp82\htdocs\VENTAS\reparaciones_python.
+                  No se encontro el iniciador de Reparaciones. Revisar la carpeta reparaciones_python de la instalacion.
                 </div>
               <?php endif; ?>
               <div class="reparaciones-frame-wrap">

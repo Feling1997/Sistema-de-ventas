@@ -280,7 +280,12 @@ $mostrar_alertas_leidas = $mostrar_alertas_leidas ?? false;
               <td><?= htmlspecialchars(numero_para_mostrar($fila["stock_maximo"] ?? "0", $decimales_unidad)) ?></td>
               <td><?= htmlspecialchars($fila["unidad"] ?? "") ?></td>
               <td><span class="badge bg-<?= (($fila["tipo_stock"] ?? "general") === "general") ? "primary" : "secondary" ?>"><?= (($fila["tipo_stock"] ?? "general") === "general") ? "General" : "Propio" ?></span></td>
-              <td><?= htmlspecialchars(precio_para_mostrar($fila["precio_costo"] ?? 0)) ?></td>
+              <td>
+                <?= htmlspecialchars(precio_para_mostrar($fila["precio_costo"] ?? 0)) ?>
+                <?php if (($fila["moneda_costo"] ?? "ARS") === "USD"): ?>
+                  <div class="small text-muted">USD <?= htmlspecialchars(numero_para_mostrar($fila["costo_origen"] ?? 0, 2)) ?></div>
+                <?php endif; ?>
+              </td>
               <td>
                 <form method="POST" action="index.php?c=stock&a=agregar" class="stock-add-form">
                   <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf_token()) ?>">

@@ -697,11 +697,12 @@ class ControladorExportaciones {
     }
 
     private function actualizar_stock_importacion(int $id_stock, string $nombre, string $unidad, float $cantidad, float $costo, int $activo, float $stock_minimo, float $stock_maximo): void {
+        Stock::asegurar_columnas_minmax();
         $pdo = obtener_pdo();
         if ($pdo === null || $id_stock <= 0)
             return;
-        $st = $pdo->prepare("UPDATE stock SET nombre = ?, unidad = ?, cantidad = ?, stock_minimo = ?, stock_maximo = ?, precio_costo = ?, activo = ? WHERE id = ?");
-        $st->execute([$nombre, $unidad, $cantidad, $stock_minimo, $stock_maximo, $costo, $activo, $id_stock]);
+        $st = $pdo->prepare("UPDATE stock SET nombre = ?, unidad = ?, cantidad = ?, stock_minimo = ?, stock_maximo = ?, precio_costo = ?, moneda_costo = 'ARS', costo_origen = ?, activo = ? WHERE id = ?");
+        $st->execute([$nombre, $unidad, $cantidad, $stock_minimo, $stock_maximo, $costo, $costo, $activo, $id_stock]);
     }
 
     private function actualizar_codigo_producto_importacion(int $id_producto, string $codigo): void {
@@ -713,14 +714,15 @@ class ControladorExportaciones {
     }
 
     private function actualizar_costo_stock_producto_importacion(array $producto, float $costo): void {
+        Stock::asegurar_columnas_minmax();
         $id_stock = (int)($producto["id_stock"] ?? 0);
         if ($id_stock <= 0 || $costo <= 0)
             return;
         $pdo = obtener_pdo();
         if ($pdo === null)
             return;
-        $st = $pdo->prepare("UPDATE stock SET precio_costo = ? WHERE id = ?");
-        $st->execute([$costo, $id_stock]);
+        $st = $pdo->prepare("UPDATE stock SET precio_costo = ?, moneda_costo = 'ARS', costo_origen = ? WHERE id = ?");
+        $st->execute([$costo, $costo, $id_stock]);
     }
 
     private function importar_csv_balanza(string $archivo, int $id_lista): array {

@@ -14,6 +14,9 @@ class ListaPrecio {
                 activo TINYINT(1) NOT NULL DEFAULT 1,
                 creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            asegurar_columna_bd($pdo, "listas_precios", "nombre", "ALTER TABLE listas_precios ADD COLUMN nombre VARCHAR(80) NOT NULL DEFAULT '' AFTER id");
+            asegurar_columna_bd($pdo, "listas_precios", "activo", "ALTER TABLE listas_precios ADD COLUMN activo TINYINT(1) NOT NULL DEFAULT 1 AFTER nombre");
+            asegurar_columna_bd($pdo, "listas_precios", "creado_en", "ALTER TABLE listas_precios ADD COLUMN creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
             $pdo->exec("CREATE TABLE IF NOT EXISTS producto_precios (
                 id_producto INT NOT NULL,
                 id_lista INT NOT NULL,
@@ -21,6 +24,8 @@ class ListaPrecio {
                 precio DECIMAL(14,2) NOT NULL DEFAULT 0,
                 PRIMARY KEY (id_producto, id_lista)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            asegurar_columna_bd($pdo, "producto_precios", "porcentaje", "ALTER TABLE producto_precios ADD COLUMN porcentaje DECIMAL(12,4) NOT NULL DEFAULT 0 AFTER id_lista");
+            asegurar_columna_bd($pdo, "producto_precios", "precio", "ALTER TABLE producto_precios ADD COLUMN precio DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER porcentaje");
             $pdo->exec("CREATE TABLE IF NOT EXISTS historial_precios (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 id_producto INT NOT NULL,
@@ -108,13 +113,24 @@ class ListaPrecio {
     public static function crear(string $nombre, int $activo): bool {
         self::asegurar_tablas();
         $pdo = obtener_pdo();
-        if ($pdo === null)
+        if ($pdo === null) {
+            registrar_operacion("listas_precios.modelo.crear.error", [
+                "error" => "Sin conexion PDO",
+                "nombre" => $nombre,
+                "activo" => $activo,
+            ]);
             return false;
+        }
         try {
             $st = $pdo->prepare("INSERT INTO listas_precios (nombre, activo) VALUES (?, ?)");
             return $st->execute([$nombre, $activo]);
         } catch (Throwable $e) {
             registrar_log("ListaPrecio::crear", $e->getMessage());
+            registrar_operacion("listas_precios.modelo.crear.error", [
+                "error" => $e->getMessage(),
+                "nombre" => $nombre,
+                "activo" => $activo,
+            ]);
             return false;
         }
     }
@@ -122,13 +138,26 @@ class ListaPrecio {
     public static function actualizar(int $id, string $nombre, int $activo): bool {
         self::asegurar_tablas();
         $pdo = obtener_pdo();
-        if ($pdo === null || $id <= 0)
+        if ($pdo === null || $id <= 0) {
+            registrar_operacion("listas_precios.modelo.actualizar.error", [
+                "error" => $pdo === null ? "Sin conexion PDO" : "ID invalido",
+                "id" => $id,
+                "nombre" => $nombre,
+                "activo" => $activo,
+            ]);
             return false;
+        }
         try {
             $st = $pdo->prepare("UPDATE listas_precios SET nombre = ?, activo = ? WHERE id = ?");
             return $st->execute([$nombre, $activo, $id]);
         } catch (Throwable $e) {
             registrar_log("ListaPrecio::actualizar", $e->getMessage());
+            registrar_operacion("listas_precios.modelo.actualizar.error", [
+                "error" => $e->getMessage(),
+                "id" => $id,
+                "nombre" => $nombre,
+                "activo" => $activo,
+            ]);
             return false;
         }
     }

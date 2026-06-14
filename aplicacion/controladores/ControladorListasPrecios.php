@@ -35,6 +35,10 @@ class ControladorListasPrecios {
     public function guardar(): void {
         if ($this->permiso()) {
             if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
+                registrar_operacion("listas_precios.guardar.rechazado", [
+                    "error" => "Acceso invalido o token invalido",
+                    "post" => $_POST,
+                ]);
                 flash_error("Acceso invalido.");
                 redirigir("index.php?c=listas_precios&a=index");
             }
@@ -42,12 +46,23 @@ class ControladorListasPrecios {
             $nombre = trim((string)obtener_post("nombre", ""));
             $activo = (int)obtener_post("activo", 1);
             if (texto_invalido($nombre)) {
+                registrar_operacion("listas_precios.guardar.rechazado", [
+                    "error" => "Nombre invalido",
+                    "id" => $id,
+                    "nombre" => $nombre,
+                    "activo" => $activo,
+                ]);
                 flash_error("Nombre invalido.");
                 redirigir("index.php?c=listas_precios&a=index");
             }
             if ($id > 0 && ListaPrecio::es_lista_base_id($id)) {
                 $nombre_base = strtolower(trim($nombre));
                 if ($nombre_base !== "costo") {
+                    registrar_operacion("listas_precios.guardar.rechazado", [
+                        "error" => "Intento cambiar lista base Costo",
+                        "id" => $id,
+                        "nombre" => $nombre,
+                    ]);
                     flash_error("No se puede cambiar el nombre base de Costo.");
                     redirigir("index.php?c=listas_precios&a=index");
                     return;
@@ -58,7 +73,26 @@ class ControladorListasPrecios {
                 }
                 $activo = 1;
             }
+            registrar_operacion("listas_precios.guardar.intento", [
+                "accion" => $id > 0 ? "actualizar" : "crear",
+                "id" => $id,
+                "nombre" => $nombre,
+                "activo" => $activo,
+            ]);
             $ok = $id > 0 ? ListaPrecio::actualizar($id, $nombre, $activo) : ListaPrecio::crear($nombre, $activo);
+            $listas = ListaPrecio::listar(false);
+            registrar_operacion("listas_precios.guardar.resultado", [
+                "ok" => $ok ? "SI" : "NO",
+                "id" => $id,
+                "nombre" => $nombre,
+                "activo" => $activo,
+                "total_listas" => count($listas),
+                "listas" => array_map(fn($lista) => [
+                    "id" => (string)($lista["id"] ?? ""),
+                    "nombre" => (string)($lista["nombre"] ?? ""),
+                    "activo" => (string)($lista["activo"] ?? ""),
+                ], $listas),
+            ]);
             $ok ? flash_ok("Lista guardada.") : flash_error("No se pudo guardar la lista.");
             redirigir("index.php?c=listas_precios&a=index");
         }

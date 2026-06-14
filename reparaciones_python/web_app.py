@@ -18,6 +18,8 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "comercio_config.json"
 MAIN_CONFIG_PATH = BASE_DIR.parent / "almacenamiento" / "configuracion_sistema.json"
 
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def config_vacia():
     datos = {
@@ -104,6 +106,7 @@ def listar_impresoras():
             capture_output=True,
             text=True,
             timeout=4,
+            creationflags=CREATE_NO_WINDOW,
         )
         if res.returncode == 0:
             impresoras = [linea.strip() for linea in res.stdout.splitlines() if linea.strip()]

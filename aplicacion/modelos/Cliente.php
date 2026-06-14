@@ -160,16 +160,31 @@ class Cliente {
     }
 
     public static function asegurar_columnas_fiscales(PDO $pdo): void {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS clientes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            nombre VARCHAR(120) NOT NULL,
+            dni VARCHAR(30) NULL,
+            telefono VARCHAR(50) NULL,
+            direccion VARCHAR(180) NULL,
+            tipo_documento VARCHAR(20) NOT NULL DEFAULT 'DNI',
+            condicion_iva VARCHAR(40) NOT NULL DEFAULT 'Consumidor Final',
+            email VARCHAR(120) NULL,
+            id_lista_precio INT NULL,
+            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        self::asegurar_columna($pdo, "nombre", "ALTER TABLE clientes ADD COLUMN nombre VARCHAR(120) NOT NULL DEFAULT '' AFTER id");
+        self::asegurar_columna($pdo, "dni", "ALTER TABLE clientes ADD COLUMN dni VARCHAR(30) NULL AFTER nombre");
+        self::asegurar_columna($pdo, "telefono", "ALTER TABLE clientes ADD COLUMN telefono VARCHAR(50) NULL AFTER dni");
+        self::asegurar_columna($pdo, "direccion", "ALTER TABLE clientes ADD COLUMN direccion VARCHAR(180) NULL AFTER telefono");
         self::asegurar_columna($pdo, "tipo_documento", "ALTER TABLE clientes ADD COLUMN tipo_documento VARCHAR(20) NOT NULL DEFAULT 'DNI' AFTER dni");
         self::asegurar_columna($pdo, "condicion_iva", "ALTER TABLE clientes ADD COLUMN condicion_iva VARCHAR(40) NOT NULL DEFAULT 'Consumidor Final' AFTER tipo_documento");
         self::asegurar_columna($pdo, "email", "ALTER TABLE clientes ADD COLUMN email VARCHAR(120) NULL AFTER condicion_iva");
+        self::asegurar_columna($pdo, "id_lista_precio", "ALTER TABLE clientes ADD COLUMN id_lista_precio INT NULL AFTER email");
+        self::asegurar_columna($pdo, "creado_en", "ALTER TABLE clientes ADD COLUMN creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
         ListaPrecio::asegurar_tablas();
     }
 
     private static function asegurar_columna(PDO $pdo, string $columna, string $sqlAlter): void {
-        $st = $pdo->prepare("SHOW COLUMNS FROM clientes LIKE ?");
-        $st->execute([$columna]);
-        if (!$st->fetch())
-            $pdo->exec($sqlAlter);
+        asegurar_columna_bd($pdo, "clientes", $columna, $sqlAlter);
     }
 }

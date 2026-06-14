@@ -80,12 +80,20 @@ class ControladorConfiguraciones {
     public function guardar_sistema(): void {
         if ($this->permiso_admin()) {
             if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+                registrar_operacion("configuraciones.guardar_sistema.rechazado", [
+                    "error" => "Metodo invalido",
+                    "post" => $_POST,
+                ]);
                 flash_error("Acceso invalido.");
                 redirigir("index.php?c=configuraciones&a=sistema" . ((string)obtener_post("seccion_navbar", "") === "reparaciones" ? "&seccion=reparaciones" : ""));
             }
 
             $csrf = obtener_post("csrf", "");
             if (!csrf_valido((string)$csrf)) {
+                registrar_operacion("configuraciones.guardar_sistema.rechazado", [
+                    "error" => "Token invalido",
+                    "post" => $_POST,
+                ]);
                 flash_error("Token invalido. Recarga la pagina.");
                 redirigir("index.php?c=configuraciones&a=sistema" . ((string)obtener_post("seccion_navbar", "") === "reparaciones" ? "&seccion=reparaciones" : ""));
             }
@@ -170,11 +178,29 @@ class ControladorConfiguraciones {
             ];
 
             if (texto_invalido((string)$datos["nombre_comercio"])) {
+                registrar_operacion("configuraciones.guardar_sistema.rechazado", [
+                    "error" => "Nombre comercio invalido",
+                    "datos" => $datos,
+                ]);
                 flash_error("El nombre del comercio es obligatorio.");
                 redirigir("index.php?c=configuraciones&a=sistema" . ((string)obtener_post("seccion_navbar", "") === "reparaciones" ? "&seccion=reparaciones" : ""));
             }
 
-            if (ConfiguracionSistema::guardar($datos))
+            registrar_operacion("configuraciones.guardar_sistema.intento", [
+                "campos" => array_keys($datos),
+                "datos" => $datos,
+            ]);
+            $ok_guardado = ConfiguracionSistema::guardar($datos);
+            $verificacion = ConfiguracionSistema::obtener();
+            $verificados = [];
+            foreach ($datos as $clave => $valor)
+                $verificados[$clave] = $verificacion[$clave] ?? null;
+            registrar_operacion("configuraciones.guardar_sistema.resultado", [
+                "ok" => $ok_guardado ? "SI" : "NO",
+                "valores_guardados" => $verificados,
+            ]);
+
+            if ($ok_guardado)
                 flash_ok("Configuracion del sistema guardada.");
             else
                 flash_error("No se pudo guardar toda la configuracion. Revisar permisos de escritura.");

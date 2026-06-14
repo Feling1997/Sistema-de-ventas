@@ -29,7 +29,8 @@ $activo = (int)($p["activo"] ?? 1);
 $usa_stock_general = (int)($p["usa_stock_general"] ?? 0) === 1;
 $stock_unidad = (string)($p["stock_unidad"] ?? "u");
 $stock_cantidad = numero_para_input($p["stock_cantidad"] ?? "0", 4);
-$stock_precio_costo = numero_para_input($p["stock_precio_costo"] ?? "0", 2);
+$stock_moneda_costo = strtoupper((string)($p["stock_moneda_costo"] ?? "ARS")) === "USD" ? "USD" : "ARS";
+$stock_precio_costo = numero_para_input($p["stock_costo_origen"] ?? $p["stock_precio_costo"] ?? "0", 2);
 $stock_minimo = numero_para_input($p["stock_minimo"] ?? "0", 4);
 $stock_maximo = numero_para_input($p["stock_maximo"] ?? "0", 4);
 $listas_precios = $listas_precios ?? [];
@@ -153,8 +154,16 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
           <div class="form-help-visible d-none" data-unidad-feedback></div>
         </div>
         <div class="col-sm-6 col-lg-2">
-          <label class="form-label">Costo</label>
+          <label class="form-label">Moneda costo</label>
+          <select class="form-select form-select-lg" name="moneda_costo">
+            <option value="ARS" <?= $stock_moneda_costo === "ARS" ? "selected" : "" ?>>Pesos</option>
+            <option value="USD" <?= $stock_moneda_costo === "USD" ? "selected" : "" ?>>Dolares</option>
+          </select>
+        </div>
+        <div class="col-sm-6 col-lg-2">
+          <label class="form-label">Costo origen</label>
           <input type="text" inputmode="decimal" class="form-control form-control-lg money-input" name="precio_costo" value="<?= htmlspecialchars($precio_costo_visible) ?>" placeholder="1500,00">
+          <div class="form-text">USD actual: <?= htmlspecialchars(precio_para_mostrar(Stock::cotizacion_dolar())) ?></div>
         </div>
       </div>
 
@@ -306,6 +315,8 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
   const ganancia = document.querySelector('input[name="ganancia"]');
   const precioManual = document.querySelector('input[name="precio_final_manual"]');
   const precioCosto = document.querySelector('input[name="precio_costo"]');
+  const monedaCosto = document.querySelector('select[name="moneda_costo"]');
+  const cotizacionDolar = <?= json_encode(Stock::cotizacion_dolar()) ?>;
   const preview = document.getElementById('precioFinalPreview');
   const stockInfoCantidad = document.getElementById('stockInfoCantidad');
   const stockInfoCosto = document.getElementById('stockInfoCosto');
@@ -365,7 +376,9 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
     if (!preview || !select)
       return;
     const op = opcionSeleccionada();
-    const costo = usaStockGeneral() ? (op ? numeroSeguro(op.getAttribute('data-costo')) : 0) : (precioCosto ? numeroSeguro(precioCosto.value) : 0);
+    let costo = usaStockGeneral() ? (op ? numeroSeguro(op.getAttribute('data-costo')) : 0) : (precioCosto ? numeroSeguro(precioCosto.value) : 0);
+    if (!usaStockGeneral() && monedaCosto && monedaCosto.value === 'USD')
+      costo *= numeroSeguro(cotizacionDolar);
     const factorValor = usaStockGeneral() ? (factor ? numeroSeguro(factor.value) : 0) : 1;
     const gananciaValor = ganancia ? numeroSeguro(ganancia.value) : 0;
     let precio = (costo * factorValor) * (1 + (gananciaValor / 100));
@@ -522,13 +535,18 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
     precioManual.addEventListener('input', actualizarPreview);
   if (precioCosto)
     precioCosto.addEventListener('input', actualizarPreview);
+  if (monedaCosto)
+    monedaCosto.addEventListener('change', actualizarPreview);
   document.querySelectorAll('.price-list-row').forEach(function(row) {
     const pct = row.querySelector('.price-percent');
     const val = row.querySelector('.price-value');
     const esCosto = row.getAttribute('data-lista-costo') === '1';
     function costoBase() {
       const op = opcionSeleccionada();
-      return usaStockGeneral() ? (op ? numeroSeguro(op.getAttribute('data-costo')) : 0) : (precioCosto ? numeroSeguro(precioCosto.value) : 0);
+      let costo = usaStockGeneral() ? (op ? numeroSeguro(op.getAttribute('data-costo')) : 0) : (precioCosto ? numeroSeguro(precioCosto.value) : 0);
+      if (!usaStockGeneral() && monedaCosto && monedaCosto.value === 'USD')
+        costo *= numeroSeguro(cotizacionDolar);
+      return costo;
     }
     function actualizarFilaBase() {
       if (!pct || !val)
@@ -537,6 +555,11 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
       if (esCosto) {
         pct.value = '0';
         val.value = costo > 0 ? costo.toFixed(2) : '0';
+        return;
+      }
+      const porcentaje = numeroSeguro(pct.value);
+      if (costo > 0 && porcentaje >= 0) {
+        val.value = (costo * (1 + (porcentaje / 100))).toFixed(2);
       }
     }
     if (pct && val) {
@@ -559,7 +582,7 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
         if (costo > 0 && precio > 0)
           pct.value = (((precio / costo) - 1) * 100).toFixed(2);
       });
-      [select, factor, precioCosto, precioManual].forEach(function(el) {
+      [select, factor, precioCosto, precioManual, monedaCosto].forEach(function(el) {
         if (el)
           el.addEventListener('input', actualizarFilaBase);
         if (el)

@@ -28,7 +28,45 @@ class ControladorUsuarios{
                 "estado" => "activo",
                 "fecha" => "creado_en"
             ], "usuario", "ASC");
-            $usuarios=Usuario::listar_todos($orden_usuarios["sql"]);
+            global $container;
+            $listarUsuarios = $container->get(\Ventas\Aplicacion\Usuarios\CasosUso\ListarUsuarios::class);
+            $usuarios_dominio = $listarUsuarios->ejecutar();
+            $usuarios = [];
+            foreach ($usuarios_dominio as $usuario_dominio) {
+                $usuarios[] = [
+                    "id" => $usuario_dominio->id(),
+                    "usuario" => $usuario_dominio->usuario(),
+                    "rol" => $usuario_dominio->rol(),
+                    "activo" => $usuario_dominio->activo() ? 1 : 0,
+                    "creado_en" => $usuario_dominio->creadoEn(),
+                ];
+            }
+            usort($usuarios, function (array $a, array $b) use ($orden_usuarios): int {
+                $campo = (string)($orden_usuarios["campo"] ?? "usuario");
+                $direccion = strtoupper((string)($orden_usuarios["direccion"] ?? "ASC"));
+                $columnas = [
+                    "usuario" => "usuario",
+                    "nombre" => "usuario",
+                    "estado" => "activo",
+                    "fecha" => "creado_en",
+                ];
+                $columna = $columnas[$campo] ?? "usuario";
+                $valor_a = $a[$columna] ?? "";
+                $valor_b = $b[$columna] ?? "";
+                $comparacion = is_numeric($valor_a) && is_numeric($valor_b)
+                    ? ((float)$valor_a <=> (float)$valor_b)
+                    : strcasecmp((string)$valor_a, (string)$valor_b);
+
+                if ($comparacion === 0) {
+                    $comparacion = ((int)($a["id"] ?? 0)) <=> ((int)($b["id"] ?? 0));
+                }
+
+                if ($direccion === "DESC") {
+                    $comparacion *= -1;
+                }
+
+                return $comparacion;
+            });
             $texto_buscar = trim((string)obtener_get("buscar", ""));
             $campo_buscar = trim((string)obtener_get("campo", "todos"));
             $metodo_buscar = trim((string)obtener_get("metodo", "contiene"));
@@ -113,13 +151,25 @@ class ControladorUsuarios{
     public function editar():void{
         if($this->permiso_admin()){
             $id=(int)obtener_get("id",0);
-            $u=Usuario::buscar_por_id($id);
+            global $container;
+            $buscarUsuarioPorId = $container->get(\Ventas\Aplicacion\Usuarios\CasosUso\BuscarUsuarioPorId::class);
+            $usuario_dominio = $buscarUsuarioPorId->ejecutar($id);
+            $u = null;
+            if ($usuario_dominio !== null) {
+                $u = [
+                    "id" => $usuario_dominio->id(),
+                    "usuario" => $usuario_dominio->usuario(),
+                    "rol" => $usuario_dominio->rol(),
+                    "activo" => $usuario_dominio->activo() ? 1 : 0,
+                    "creado_en" => $usuario_dominio->creadoEn(),
+                ];
+            }
             if($u===null){
                 flash_error("Usuario no encontrado.");
                 redirigir("index.php?c=usuarios&a=index");
             }else{
                 $modo="editar";
-                $permisos_usuario = Usuario::permisos_array($u["permisos"] ?? "[]");
+                $permisos_usuario = $usuario_dominio->permisos()->comoArray();
                 $modulos_permisos = $this->modulos_para_permisos();
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/usuarios/formulario.php";

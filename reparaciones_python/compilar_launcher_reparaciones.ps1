@@ -146,7 +146,7 @@ class LauncherReparaciones
     {
         ProcessStartInfo info = new ProcessStartInfo();
         info.FileName = pythonExe;
-        info.Arguments = "\"" + webApp + "\"";
+        info.Arguments = "\"" + webApp + "\" --no-browser";
         info.WorkingDirectory = appDir;
         info.UseShellExecute = false;
         info.CreateNoWindow = true;

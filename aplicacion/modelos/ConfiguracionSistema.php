@@ -26,6 +26,7 @@ class ConfiguracionSistema {
             "ticket_fuente" => "Arial",
             "ticket_tamano_fuente" => "12",
             "controlar_stock_ventas" => "1",
+            "productos_cotizacion_dolar" => "1",
             "balanza_modo" => "auto",
             "balanza_plu_digitos" => "5",
             "balanza_valor_decimales" => "3",
@@ -106,9 +107,8 @@ class ConfiguracionSistema {
     }
 
     public static function guardar(array $entrada): bool {
-        $datos = self::normalizar($entrada);
         $actual = self::obtener();
-        $datos = array_merge($actual, $datos);
+        $datos = self::normalizar(array_merge($actual, $entrada));
         if ((int)$datos["punto_venta"] <= 0)
             $datos["punto_venta"] = 1;
 
@@ -117,14 +117,35 @@ class ConfiguracionSistema {
             @mkdir($carpeta, 0777, true);
 
         $json = json_encode($datos, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if (!is_string($json))
+        if (!is_string($json)) {
+            registrar_operacion("configuraciones.modelo.guardar_sistema.error", [
+                "error" => "No se pudo generar JSON",
+                "datos" => $datos,
+            ]);
             return false;
+        }
 
         $ok_json = @file_put_contents(self::archivo_configuracion(), $json) !== false;
         $ok_arca = self::sincronizar_arca($datos);
         $ok_reparaciones = self::sincronizar_reparaciones($datos);
         $ok_db = self::guardar_en_db($datos);
-        return $ok_json && $ok_arca && $ok_reparaciones && $ok_db;
+        if (!$ok_json)
+            registrar_log("ConfiguracionSistema::guardar", "No se pudo escribir configuracion_sistema.json");
+        if (!$ok_arca)
+            registrar_log("ConfiguracionSistema::guardar", "No se pudo sincronizar arca.php");
+        if (!$ok_reparaciones)
+            registrar_log("ConfiguracionSistema::guardar", "No se pudo sincronizar reparaciones");
+        registrar_operacion("configuraciones.modelo.guardar_sistema.resultado", [
+            "ok_final" => ($ok_db || $ok_json) ? "SI" : "NO",
+            "ok_db" => $ok_db ? "SI" : "NO",
+            "ok_json" => $ok_json ? "SI" : "NO",
+            "ok_arca" => $ok_arca ? "SI" : "NO",
+            "ok_reparaciones" => $ok_reparaciones ? "SI" : "NO",
+            "archivo_json" => self::archivo_configuracion(),
+            "json_writable" => is_writable(is_file(self::archivo_configuracion()) ? self::archivo_configuracion() : dirname(self::archivo_configuracion())) ? "SI" : "NO",
+            "campos" => array_keys($entrada),
+        ]);
+        return $ok_db || $ok_json;
     }
 
     public static function restablecer(): bool {
@@ -136,7 +157,7 @@ class ConfiguracionSistema {
         $ok_arca = self::sincronizar_arca($datos);
         $ok_reparaciones = self::sincronizar_reparaciones($datos);
         $ok_db = self::guardar_en_db($datos);
-        return $ok_arca && $ok_reparaciones && $ok_db;
+        return $ok_db || $ok_arca || $ok_reparaciones;
     }
 
     private static function obtener_desde_db(): array {
@@ -147,15 +168,7 @@ class ConfiguracionSistema {
         if ($pdo === null)
             return $datos;
         try {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS configuraciones (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                clave VARCHAR(120) NOT NULL,
-                valor LONGTEXT NULL,
-                tipo VARCHAR(40) NOT NULL DEFAULT 'texto',
-                grupo VARCHAR(60) NOT NULL DEFAULT 'sistema',
-                UNIQUE KEY uq_configuraciones_clave (clave),
-                KEY idx_configuraciones_grupo (grupo)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            asegurar_tabla_configuraciones($pdo);
             $permitidos = array_flip(array_keys(self::valores_defecto()));
             $st = $pdo->query("SELECT clave, valor FROM configuraciones");
             $rows = $st ? $st->fetchAll() : [];
@@ -182,18 +195,15 @@ class ConfiguracionSistema {
         if (!function_exists("obtener_pdo"))
             require_once __DIR__ . "/../../configuraciones/base_datos.php";
         $pdo = obtener_pdo();
-        if ($pdo === null)
+        if ($pdo === null) {
+            registrar_operacion("configuraciones.modelo.guardar_db.error", [
+                "error" => "Sin conexion PDO",
+                "campos" => array_keys($datos),
+            ]);
             return false;
+        }
         try {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS configuraciones (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                clave VARCHAR(120) NOT NULL,
-                valor LONGTEXT NULL,
-                tipo VARCHAR(40) NOT NULL DEFAULT 'texto',
-                grupo VARCHAR(60) NOT NULL DEFAULT 'sistema',
-                UNIQUE KEY uq_configuraciones_clave (clave),
-                KEY idx_configuraciones_grupo (grupo)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            asegurar_tabla_configuraciones($pdo);
             $normalizados = self::normalizar($datos);
             $st = $pdo->prepare("INSERT INTO configuraciones (clave, valor, tipo, grupo) VALUES (?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE valor = VALUES(valor), tipo = VALUES(tipo), grupo = VALUES(grupo)");
@@ -204,6 +214,10 @@ class ConfiguracionSistema {
             return true;
         } catch (Throwable $e) {
             registrar_log("ConfiguracionSistema::guardar_en_db", $e->getMessage());
+            registrar_operacion("configuraciones.modelo.guardar_db.error", [
+                "error" => $e->getMessage(),
+                "campos" => array_keys($datos),
+            ]);
             return false;
         }
     }
@@ -253,10 +267,12 @@ class ConfiguracionSistema {
     }
 
     private static function normalizar(array $entrada): array {
-        $permitidos = array_keys(self::valores_defecto());
+        $permitidos = array_flip(array_keys(self::valores_defecto()));
         $datos = [];
-        foreach ($permitidos as $clave) {
-            $valor = $entrada[$clave] ?? "";
+        foreach ($entrada as $clave => $valor) {
+            $clave = (string)$clave;
+            if (!isset($permitidos[$clave]))
+                continue;
             if ($clave === "punto_venta")
                 $datos[$clave] = max(1, (int)$valor);
             else if (in_array($clave, ["mostrar_reparaciones", "configuracion_separada", "navbar_mostrar_marca", "navbar_mostrar_config", "navbar_mostrar_usuario", "navbar_mostrar_rol", "navbar_mostrar_cambio_modulo", "navbar_mostrar_salir", "backup_b2_habilitado", "backup_automatico", "backup_local_habilitado", "backup_auto_local", "backup_auto_backblaze", "controlar_stock_ventas", "ticket_imagen_completa", "ticket_logo_termico"], true))
@@ -264,6 +280,10 @@ class ConfiguracionSistema {
             else if ($clave === "navbar_boton_opacidad") {
                 $opacidad = max(0, min(100, (int)$valor));
                 $datos[$clave] = (string)$opacidad;
+            }
+            else if ($clave === "productos_cotizacion_dolar") {
+                $cotizacion = (float)str_replace(",", ".", trim((string)$valor));
+                $datos[$clave] = (string)max(0.0001, $cotizacion);
             }
             else if ($clave === "navbar_fondo_modo") {
                 $datos[$clave] = "colores";
@@ -335,7 +355,7 @@ class ConfiguracionSistema {
             return "color";
         if (in_array($clave, ["ticket_imagen_completa", "ticket_logo_termico"], true) || str_starts_with($clave, "mostrar_") || str_contains($clave, "_habilitado") || str_contains($clave, "_auto") || str_contains($clave, "_sonido") || str_contains($clave, "_toasts") || str_contains($clave, "_alertas") || str_contains($clave, "_logs") || str_contains($clave, "_animaciones") || str_contains($clave, "_sombras") || str_contains($clave, "_escaner") || str_contains($clave, "_etiquetas"))
             return "booleano";
-        if (str_contains($clave, "decimales") || str_contains($clave, "tiempo") || str_contains($clave, "tamano") || str_contains($clave, "radio") || $clave === "punto_venta" || $clave === "navbar_boton_opacidad")
+        if (str_contains($clave, "decimales") || str_contains($clave, "tiempo") || str_contains($clave, "tamano") || str_contains($clave, "radio") || $clave === "punto_venta" || $clave === "navbar_boton_opacidad" || $clave === "productos_cotizacion_dolar")
             return "numero";
         if (str_contains($clave, "logo") || str_contains($clave, "favicon") || str_contains($clave, "imagen"))
             return "archivo";
