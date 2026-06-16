@@ -207,6 +207,17 @@ final class ConfirmarVenta
         return $normalizado;
     }
 
+    private function normalizarIdCliente(int $idCliente): int
+    {
+        $normalizado = $idCliente;
+
+        if ($normalizado <= 0) {
+            $normalizado = 1;
+        }
+
+        return $normalizado;
+    }
+
     private function tipoComprobante(int $tipoComprobante): array
     {
         $tipos = $this->tiposComprobante();

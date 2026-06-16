@@ -62,17 +62,19 @@ function auth_admin_local_habilitado(): bool {
 
 function auth_no_hay_usuarios_creados(): bool {
     require_once __DIR__ . "/base_datos.php";
+    $resultado = false;
     $pdo = obtener_pdo();
-    if ($pdo === null)
-        return false;
-    try {
-        $st = $pdo->query("SELECT COUNT(*) AS total FROM usuarios");
-        $fila = $st ? $st->fetch() : false;
-        return (int)($fila["total"] ?? 0) === 0;
-    } catch (Throwable $e) {
-        registrar_log("auth_no_hay_usuarios_creados", $e->getMessage());
-        return false;
+    if ($pdo !== null) {
+        try {
+            $st = $pdo->prepare("SELECT COUNT(*) AS total FROM usuarios WHERE id > 0 OR usuario <> ?");
+            $st->execute(["Sin login"]);
+            $fila = $st->fetch();
+            $resultado = (int)($fila["total"] ?? 0) === 0;
+        } catch (Throwable $e) {
+            registrar_log("auth_no_hay_usuarios_creados", $e->getMessage());
+        }
     }
+    return $resultado;
 }
 
 function require_login():bool{

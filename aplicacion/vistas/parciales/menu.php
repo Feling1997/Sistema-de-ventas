@@ -28,7 +28,7 @@ if ($logo_sistema_nav !== "") {
     else {
         $logo_sistema_nav_path = __DIR__ . "/../../../" . ltrim($logo_sistema_nav, "/\\");
         $logo_sistema_nav_version = is_file($logo_sistema_nav_path) ? "?v=" . (string)filemtime($logo_sistema_nav_path) : "";
-        $logo_sistema_nav_url = "/VENTAS/" . str_replace([" ", ")", "("], ["%20", "%29", "%28"], ltrim($logo_sistema_nav, "/")) . $logo_sistema_nav_version;
+        $logo_sistema_nav_url = asset($logo_sistema_nav) . $logo_sistema_nav_version;
     }
 }
 $es_configuracion = in_array($controlador_actual, ["configuracion", "configuraciones"], true) && !($controlador_actual === "configuraciones" && $seccion_param === "reparaciones");

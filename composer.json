@@ -8,7 +8,19 @@
             "Ventas\\Dominio\\": "src/dominio/",
             "Ventas\\Aplicacion\\": "src/aplicacion/",
             "Ventas\\Infraestructura\\": "src/infraestructura/",
-            "Ventas\\Presentacion\\": "src/presentacion/"
+            "Ventas\\Presentacion\\": "src/presentacion/",
+            "Ventas\\UnidadesMedida\\Application\\": "src/unidades-medida/application/",
+            "Ventas\\UnidadesMedida\\Domain\\": "src/unidades-medida/domain/",
+            "Ventas\\UnidadesMedida\\Infrastructure\\": "src/unidades-medida/infrastructure/",
+            "Ventas\\ListasPrecios\\Application\\": "src/listas-precios/application/",
+            "Ventas\\ListasPrecios\\Domain\\": "src/listas-precios/domain/",
+            "Ventas\\ListasPrecios\\Infrastructure\\": "src/listas-precios/infrastructure/",
+            "Ventas\\Impresoras\\Application\\": "src/impresoras/application/",
+            "Ventas\\Impresoras\\Domain\\": "src/impresoras/domain/",
+            "Ventas\\Impresoras\\Infrastructure\\": "src/impresoras/infrastructure/",
+            "Ventas\\Clientes\\Application\\": "src/clientes/application/",
+            "Ventas\\Clientes\\Domain\\": "src/clientes/domain/",
+            "Ventas\\Clientes\\Infrastructure\\": "src/clientes/infrastructure/"
         }
     }
 }

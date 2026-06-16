@@ -27,7 +27,7 @@ if ($imagen_panel !== "") {
   if (preg_match('/^https?:\/\//i', $imagen_panel))
     $imagen_panel_css = "url(" . str_replace([" ", ")", "("], ["%20", "%29", "%28"], $imagen_panel) . ")";
   else
-    $imagen_panel_css = "url(/VENTAS/" . str_replace([" ", ")", "("], ["%20", "%29", "%28"], ltrim($imagen_panel, "/")) . ")";
+    $imagen_panel_css = "url(" . asset($imagen_panel) . ")";
 }
 $navbar_opacidad = max(0, min(100, (int)($config_visual["navbar_boton_opacidad"] ?? 10))) / 100;
 $tema_paneles = (string)($config_visual["tema_paneles"] ?? "claro");
@@ -47,7 +47,7 @@ if ($logo_sistema_visual !== "") {
   else {
     $logo_sistema_path = __DIR__ . "/../../../" . ltrim($logo_sistema_visual, "/\\");
     $logo_sistema_version = is_file($logo_sistema_path) ? "?v=" . (string)filemtime($logo_sistema_path) : "";
-    $logo_sistema_url = "/VENTAS/" . str_replace([" ", ")", "("], ["%20", "%29", "%28"], ltrim($logo_sistema_visual, "/")) . $logo_sistema_version;
+    $logo_sistema_url = asset($logo_sistema_visual) . $logo_sistema_version;
   }
 }
 $backup_automatico_visual = rol_actual() === "ADMIN" ? (string)($config_visual["backup_automatico"] ?? "0") : "0";
@@ -62,9 +62,9 @@ $css_version = is_file($css_path) ? (string)filemtime($css_path) : "1";
   <meta name="csrf-token" content="<?= htmlspecialchars(csrf_token()) ?>">
   <title><?= htmlspecialchars((string)($config_visual["nombre_comercio"] ?? "MI COMERCIO")) ?></title>
   <?php if ($favicon_visual !== ""): ?>
-    <link rel="icon" href="/VENTAS/<?= htmlspecialchars(ltrim($favicon_visual, "/")) ?>">
+    <link rel="icon" href="<?= htmlspecialchars(asset($favicon_visual)) ?>">
   <?php endif; ?>
-  <link rel="stylesheet" href="/VENTAS/publico/assets/css/app.css?v=<?= htmlspecialchars($css_version) ?>">
+  <link rel="stylesheet" href="<?= htmlspecialchars(asset("assets/css/app.css")) ?>?v=<?= htmlspecialchars($css_version) ?>">
 </head>
 <?php $body_class = trim((string)($body_class ?? "bg-light")); ?>
 <body class="<?= htmlspecialchars(trim($body_class . " tema-" . $tema_paneles . " modo-" . $tema_modo)) ?>" data-url-reparaciones="<?= htmlspecialchars($url_reparaciones_visual) ?>" data-atajo-reparaciones="<?= htmlspecialchars((string)($config_visual["atajo_reparaciones"] ?? "F9")) ?>" data-logo-sistema="<?= htmlspecialchars($logo_sistema_url) ?>" data-backup-automatico="<?= htmlspecialchars($backup_automatico_visual) ?>" data-backup-frecuencia="<?= htmlspecialchars((string)($config_visual["backup_frecuencia"] ?? "diario")) ?>" data-backup-hora="<?= htmlspecialchars((string)($config_visual["backup_hora"] ?? "18:55")) ?>" data-backup-aviso-minutos="<?= htmlspecialchars((string)($config_visual["backup_aviso_minutos"] ?? "5")) ?>" data-backup-auto-local="<?= htmlspecialchars((string)($config_visual["backup_auto_local"] ?? "1")) ?>" data-backup-auto-backblaze="<?= htmlspecialchars((string)($config_visual["backup_auto_backblaze"] ?? "0")) ?>">

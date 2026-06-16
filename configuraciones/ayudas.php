@@ -350,6 +350,31 @@ function config(string $nombre, string $valor_defecto = ""): string {
     return $valor;
 }
 
+function obtener_url_base(): string {
+    $resultado = "";
+    $script = str_replace("\\", "/", (string)($_SERVER["SCRIPT_NAME"] ?? ""));
+    $directorio = trim((string)dirname($script), "/");
+    if ($directorio !== "" && $directorio !== ".") {
+        $resultado = "/" . $directorio;
+    } else {
+        $resultado = "";
+    }
+    return $resultado;
+}
+
+function asset(string $ruta): string {
+    $resultado = "";
+    $ruta = trim($ruta);
+    if ($ruta === "") {
+        $resultado = obtener_url_base() . "/";
+    } elseif (preg_match('/^(https?:)?\/\//i', $ruta) || preg_match('/^[a-z][a-z0-9+.-]*:/i', $ruta)) {
+        $resultado = $ruta;
+    } else {
+        $resultado = obtener_url_base() . "/" . str_replace([" ", ")", "("], ["%20", "%29", "%28"], ltrim($ruta, "/"));
+    }
+    return $resultado;
+}
+
 function flash_ok(string $mensaje):void{
     iniciar_sesion();
     $_SESSION["flash_ok"]=$mensaje;

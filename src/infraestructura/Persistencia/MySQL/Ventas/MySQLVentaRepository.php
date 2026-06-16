@@ -156,21 +156,38 @@ final class MySQLVentaRepository implements VentaRepository
     public function listarPeriodo(string $fechaDesde, string $fechaHasta, string $ordenCampo, string $ordenDireccion): array
     {
         $ventas = [];
-        $statement = $this->pdo->prepare(
-            'SELECT v.id,
-                    v.fecha,
-                    v.total,
-                    c.nombre AS cliente_nombre,
-                    u.usuario AS usuario_nombre
-             FROM ventas v
-             INNER JOIN clientes c ON c.id = v.id_cliente
-             INNER JOIN usuarios u ON u.id = v.id_usuario
-             WHERE (? = "" OR DATE(v.fecha) >= ?)
-               AND (? = "" OR DATE(v.fecha) <= ?)
-             ORDER BY ' . $this->ordenVentasSql($ordenCampo, $ordenDireccion) . ', v.id DESC'
-        );
+        $condiciones = [];
+        $parametros = [];
+        $fechaDesde = trim($fechaDesde);
+        $fechaHasta = trim($fechaHasta);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaDesde) === 1) {
+            $partesDesde = array_map('intval', explode('-', $fechaDesde));
+            if (checkdate($partesDesde[1], $partesDesde[2], $partesDesde[0])) {
+                $condiciones[] = 'DATE(v.fecha) >= ?';
+                $parametros[] = $fechaDesde;
+            }
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaHasta) === 1) {
+            $partesHasta = array_map('intval', explode('-', $fechaHasta));
+            if (checkdate($partesHasta[1], $partesHasta[2], $partesHasta[0])) {
+                $condiciones[] = 'DATE(v.fecha) <= ?';
+                $parametros[] = $fechaHasta;
+            }
+        }
+        $where = count($condiciones) > 0 ? ' WHERE ' . implode(' AND ', $condiciones) : '';
+        $sql = 'SELECT v.id,
+                       v.fecha,
+                       v.total,
+                       c.nombre AS cliente_nombre,
+                       u.usuario AS usuario_nombre
+                FROM ventas v
+                INNER JOIN clientes c ON c.id = v.id_cliente
+                INNER JOIN usuarios u ON u.id = v.id_usuario'
+            . $where
+            . ' ORDER BY ' . $this->ordenVentasSql($ordenCampo, $ordenDireccion) . ', v.id DESC';
+        $statement = $this->pdo->prepare($sql);
 
-        $statement->execute([$fechaDesde, $fechaDesde, $fechaHasta, $fechaHasta]);
+        $statement->execute($parametros);
         $filas = $statement->fetchAll();
 
         foreach ($filas as $fila) {
