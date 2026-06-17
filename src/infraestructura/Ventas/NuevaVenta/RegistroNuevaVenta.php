@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Ventas\Infraestructura\Ventas\NuevaVenta;
 
 use PDO;
-use Ventas\Aplicacion\Productos\CasosUso\BuscarProductoPorCodigoOPLU;
-use Ventas\Aplicacion\Productos\CasosUso\ObtenerProductoParaVenta;
-use Ventas\Aplicacion\Stock\CasosUso\BuscarStockPorId;
+use Ventas\Productos\Application\BuscarProductoPorCodigoOPLU;
+use Ventas\Productos\Application\ObtenerProductoParaVenta;
+use Ventas\Stock\Application\BuscarStockPorId;
 use Ventas\Aplicacion\Ventas\NuevaVenta\ActualizarItemCarritoVenta;
 use Ventas\Aplicacion\Ventas\NuevaVenta\AgregarItemCarritoVenta;
 use Ventas\Aplicacion\Ventas\NuevaVenta\AplicarListaPrecioCarritoVenta;
@@ -26,8 +26,8 @@ use Ventas\Aplicacion\Ventas\NuevaVenta\QuitarItemCarritoVenta;
 use Ventas\Aplicacion\Ventas\NuevaVenta\RenderizarCarritoVenta;
 use Ventas\Aplicacion\Ventas\NuevaVenta\VaciarCarritoVenta;
 use Ventas\Aplicacion\Ventas\CasosUso\ConfirmarVenta;
-use Ventas\Dominio\ListasPrecios\Repositorios\ListaPrecioRepository;
-use Ventas\Dominio\Productos\Repositorios\ProductoRepository;
+use Ventas\ListasPrecios\Domain\Repositorios\ListaPrecioRepository;
+use Ventas\Productos\Domain\Repositorios\ProductoRepository;
 use Ventas\Dominio\Ventas\NuevaVenta\Repositorios\CarritoVentaRepository;
 use Ventas\Dominio\Ventas\NuevaVenta\Repositorios\ClienteVentaRepository;
 use Ventas\Dominio\Ventas\NuevaVenta\Repositorios\ConfiguracionVentaRepository;
@@ -38,10 +38,10 @@ use Ventas\Dominio\Ventas\NuevaVenta\Repositorios\UsuarioActualRepository;
 use Ventas\Dominio\Ventas\Repositorios\VentaRepository;
 use Ventas\Infraestructura\Configuracion\DatabaseConfig;
 use Ventas\Infraestructura\Contenedor\Container;
-use Ventas\Infraestructura\Persistencia\MySQL\ListasPrecios\MySQLListaPrecioRepository;
+use Ventas\ListasPrecios\Infrastructure\MySQLListaPrecioRepository;
 use Ventas\Infraestructura\Persistencia\MySQL\PdoConnectionFactory;
-use Ventas\Infraestructura\Persistencia\MySQL\Productos\MySQLProductoRepository;
 use Ventas\Infraestructura\Persistencia\MySQL\Ventas\MySQLVentaRepository;
+use Ventas\Productos\Infrastructure\MySQLProductoRepository;
 
 final class RegistroNuevaVenta
 {

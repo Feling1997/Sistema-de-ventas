@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Ventas\Aplicacion\Ventas\NuevaVenta;
 
-use Ventas\Aplicacion\Productos\CasosUso\ObtenerProductoParaVenta;
-use Ventas\Aplicacion\Stock\CasosUso\BuscarStockPorId;
-use Ventas\Dominio\Productos\Repositorios\ProductoRepository;
+use Ventas\Productos\Application\ObtenerProductoParaVenta;
+use Ventas\Productos\Domain\Repositorios\ProductoRepository;
+use Ventas\Stock\Application\BuscarStockPorId;
 use Ventas\Dominio\Ventas\NuevaVenta\Repositorios\CarritoVentaRepository;
 use Ventas\Dominio\Ventas\NuevaVenta\Repositorios\ConfiguracionVentaRepository;
 

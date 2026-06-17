@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Ventas\Aplicacion\Ventas\NuevaVenta;
 
-use Ventas\Dominio\ListasPrecios\Entidades\ListaPrecio;
-use Ventas\Dominio\ListasPrecios\Repositorios\ListaPrecioRepository;
+use Ventas\ListasPrecios\Domain\Entidades\ListaPrecio;
+use Ventas\ListasPrecios\Domain\Repositorios\ListaPrecioRepository;
 use Ventas\Dominio\Ventas\NuevaVenta\Repositorios\FormularioVentaRepository;
 
 final class ObtenerFormularioVenta

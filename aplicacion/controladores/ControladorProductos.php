@@ -164,9 +164,9 @@ class ControladorProductos {
     public function index(): void {
         if ($this->permiso()) {
             global $container;
-            $listarProductosVista = $container->get(\Ventas\Aplicacion\Productos\CasosUso\ListarProductosVista::class);
-            $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
-            $obtenerListaPrecioPredeterminada = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ObtenerListaPrecioPredeterminada::class);
+            $listarProductosVista = $container->get(\Ventas\Productos\Application\ListarProductosVista::class);
+            $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
+            $obtenerListaPrecioPredeterminada = $container->get(\Ventas\ListasPrecios\Application\ObtenerListaPrecioPredeterminada::class);
             $orden_productos = orden_parametros([
                 "nombre" => "nombre",
                 "descripcion" => "nombre",
@@ -234,9 +234,9 @@ class ControladorProductos {
     public function nuevo(): void {
         if ($this->permiso()) {
             global $container;
-            $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
-            $listarStockGeneral = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStockGeneral::class);
-            $listarUnidadesMedida = $container->get(\Ventas\Aplicacion\UnidadesMedida\CasosUso\ListarUnidadesMedida::class);
+            $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
+            $listarStockGeneral = $container->get(\Ventas\Stock\Application\ListarStockGeneral::class);
+            $listarUnidadesMedida = $container->get(\Ventas\UnidadesMedida\Application\ListarUnidadesMedida::class);
             $listas_precios = [];
             foreach ($listarListasPrecios->ejecutar() as $lista_dominio)
                 $listas_precios[] = $this->listaPrecioDominioAArray($lista_dominio);
@@ -499,11 +499,11 @@ class ControladorProductos {
     public function editar(): void {
         if ($this->permiso()) {
             global $container;
-            $buscarProductoFormularioPorId = $container->get(\Ventas\Aplicacion\Productos\CasosUso\BuscarProductoFormularioPorId::class);
-            $obtenerPreciosProducto = $container->get(\Ventas\Aplicacion\Productos\CasosUso\ObtenerPreciosProducto::class);
-            $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
-            $listarStockGeneral = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStockGeneral::class);
-            $listarUnidadesMedida = $container->get(\Ventas\Aplicacion\UnidadesMedida\CasosUso\ListarUnidadesMedida::class);
+            $buscarProductoFormularioPorId = $container->get(\Ventas\Productos\Application\BuscarProductoFormularioPorId::class);
+            $obtenerPreciosProducto = $container->get(\Ventas\Productos\Application\ObtenerPreciosProducto::class);
+            $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
+            $listarStockGeneral = $container->get(\Ventas\Stock\Application\ListarStockGeneral::class);
+            $listarUnidadesMedida = $container->get(\Ventas\UnidadesMedida\Application\ListarUnidadesMedida::class);
             $id = (int)obtener_get("id", 0);
             $p = $buscarProductoFormularioPorId->ejecutar($id);
             if ($p === null) {
@@ -705,7 +705,7 @@ class ControladorProductos {
                 flash_error("Acceso invalido.");
             } else {
                 global $container;
-                $eliminarProductosNoVendidos = $container->get(\Ventas\Aplicacion\Productos\CasosUso\EliminarProductosNoVendidos::class);
+                $eliminarProductosNoVendidos = $container->get(\Ventas\Productos\Application\EliminarProductosNoVendidos::class);
                 $eliminados = $eliminarProductosNoVendidos->ejecutar();
                 if ($eliminados > 0)
                     flash_ok("Productos sin ventas eliminados: " . $eliminados . ".");

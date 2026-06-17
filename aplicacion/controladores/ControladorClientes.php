@@ -1,5 +1,4 @@
 <?php
-require_once __DIR__ . "/../modelos/Cliente.php";
 require_once __DIR__ . "/../modelos/ListaPrecio.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
@@ -32,7 +31,7 @@ class ControladorClientes {
                 "fecha" => "c.creado_en"
             ], "nombre", "ASC");
             global $container;
-            $listarClientes = $container->get(\Ventas\Aplicacion\Clientes\CasosUso\ListarClientes::class);
+            $listarClientes = $container->get(\Ventas\Clientes\Application\ListarClientes::class);
             $clientes_dominio = $listarClientes->ejecutar();
             $clientes = [];
             foreach ($clientes_dominio as $cliente_dominio) {
@@ -138,10 +137,19 @@ class ControladorClientes {
                             $dir_db = $direccion;
                         if (!texto_invalido($email) && $email !== "")
                             $email_db = $email;
-                        if ($dni_db !== null && Cliente::dni_existe($dni_db, 0))
+                        global $container;
+                        $clienteRepository = $container->get(\Ventas\Clientes\Domain\Repositorios\ClienteRepository::class);
+                        if ($dni_db !== null && $clienteRepository->existeDocumento($dni_db, 0)) {
                             $error = "El documento ya existe.";
-                        else {
-                            $ok = Cliente::crear($nombre, $dni_db, $tel_db, $dir_db, $tipo_documento, $condicion_iva, $email_db, $id_lista_precio);
+                        } else {
+                            $ok = false;
+                            try {
+                                $crearCliente = $container->get(\Ventas\Clientes\Application\CrearCliente::class);
+                                $crearCliente->ejecutar(new \Ventas\Clientes\Domain\Entidades\Cliente(null, $nombre, $dni_db, $tipo_documento, $condicion_iva, $email_db, $tel_db, $dir_db, $id_lista_precio > 0 ? $id_lista_precio : null));
+                                $ok = true;
+                            } catch (Throwable $e) {
+                                registrar_log("ControladorClientes::crear", $e->getMessage());
+                            }
                             if ($ok) {
                                 flash_ok("Cliente creado correctamente.");
                                 redirigir("index.php?c=clientes&a=index");
@@ -168,8 +176,8 @@ class ControladorClientes {
                 redirigir("index.php?c=clientes&a=index");
             } else {
                 global $container;
-                $buscarClientePorId = $container->get(\Ventas\Aplicacion\Clientes\CasosUso\BuscarClientePorId::class);
-                $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
+                $buscarClientePorId = $container->get(\Ventas\Clientes\Application\BuscarClientePorId::class);
+                $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
                 $cliente_dominio = $buscarClientePorId->ejecutar($id);
                 if ($cliente_dominio === null) {
                     flash_error("Cliente no encontrado.");
@@ -219,7 +227,9 @@ class ControladorClientes {
                     if ($id === 1) {
                         $error = "Consumidor Final (ID=1) no se puede editar.";
                     } else {
-                        $c_actual = Cliente::buscar_por_id($id);
+                        global $container;
+                        $buscarClientePorId = $container->get(\Ventas\Clientes\Application\BuscarClientePorId::class);
+                        $c_actual = $buscarClientePorId->ejecutar($id);
                         if ($c_actual === null) {
                             $error = "Cliente no encontrado.";
                         } else {
@@ -253,10 +263,18 @@ class ControladorClientes {
                                     $email_db = $email;
                                 }
 
-                                if ($dni_db !== null && Cliente::dni_existe($dni_db, $id)) {
+                                $clienteRepository = $container->get(\Ventas\Clientes\Domain\Repositorios\ClienteRepository::class);
+                                if ($dni_db !== null && $clienteRepository->existeDocumento($dni_db, $id)) {
                                     $error = "El documento ya existe.";
                                 } else {
-                                    $ok = Cliente::actualizar($id, $nombre, $dni_db, $tel_db, $dir_db, $tipo_documento, $condicion_iva, $email_db, $id_lista_precio);
+                                    $ok = false;
+                                    try {
+                                        $actualizarCliente = $container->get(\Ventas\Clientes\Application\ActualizarCliente::class);
+                                        $actualizarCliente->ejecutar(new \Ventas\Clientes\Domain\Entidades\Cliente($id, $nombre, $dni_db, $tipo_documento, $condicion_iva, $email_db, $tel_db, $dir_db, $id_lista_precio > 0 ? $id_lista_precio : null));
+                                        $ok = true;
+                                    } catch (Throwable $e) {
+                                        registrar_log("ControladorClientes::actualizar", $e->getMessage());
+                                    }
                                     if ($ok) {
                                         flash_ok("Cliente actualizado correctamente.");
                                         redirigir("index.php?c=clientes&a=index");
@@ -287,21 +305,30 @@ class ControladorClientes {
                 flash_error("Consumidor Final (ID=1) no se puede eliminar.");
                 redirigir("index.php?c=clientes&a=index");
             } else {
-                $c = Cliente::buscar_por_id($id);
+                global $container;
+                $buscarClientePorId = $container->get(\Ventas\Clientes\Application\BuscarClientePorId::class);
+                $c = $buscarClientePorId->ejecutar($id);
                 if ($c === null) {
                     flash_error("Cliente no encontrado.");
                     redirigir("index.php?c=clientes&a=index");
                 } else {
-                    if (Cliente::esta_relacionado_con_ventas($id)) {
+                    $eliminarCliente = $container->get(\Ventas\Clientes\Application\EliminarCliente::class);
+                    try {
+                        $eliminarCliente->ejecutar($id);
+                        flash_ok("Cliente eliminado.");
+                        redirigir("index.php?c=clientes&a=index");
+                    } catch (\Ventas\Clientes\Domain\Excepciones\ClienteConVentasException $e) {
                         flash_error("No se puede eliminar: el cliente tiene ventas asociadas.");
                         redirigir("index.php?c=clientes&a=index");
-                    } else {
-                        $ok = Cliente::eliminar($id);
-                        if ($ok) {
-                            flash_ok("Cliente eliminado.");
-                        } else {
-                            flash_error("No se pudo eliminar (ver logs).");
-                        }
+                    } catch (\Ventas\Clientes\Domain\Excepciones\ClienteProtegidoException $e) {
+                        flash_error("Consumidor Final (ID=1) no se puede eliminar.");
+                        redirigir("index.php?c=clientes&a=index");
+                    } catch (\Ventas\Clientes\Domain\Excepciones\ClienteNoEncontradoException $e) {
+                        flash_error("Cliente no encontrado.");
+                        redirigir("index.php?c=clientes&a=index");
+                    } catch (Throwable $e) {
+                        registrar_log("ControladorClientes::eliminar", $e->getMessage());
+                        flash_error("No se pudo eliminar (ver logs).");
                         redirigir("index.php?c=clientes&a=index");
                     }
                 }

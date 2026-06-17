@@ -3,14 +3,14 @@
 require __DIR__ . "/../vendor/autoload.php";
 
 use Ventas\Infraestructura\Contenedor\Container;
-use Ventas\Infraestructura\Contenedor\RegistroClientes;
-use Ventas\Infraestructura\Contenedor\RegistroImpresoras;
-use Ventas\Infraestructura\Contenedor\RegistroListasPrecios;
+use Ventas\Clientes\Infrastructure\RegistroClientes;
+use Ventas\Impresoras\Infrastructure\RegistroImpresoras;
+use Ventas\ListasPrecios\Infrastructure\RegistroListasPrecios;
 use Ventas\Infraestructura\Contenedor\RegistroPresupuestos;
-use Ventas\Infraestructura\Contenedor\RegistroProductos;
-use Ventas\Infraestructura\Contenedor\RegistroStock;
-use Ventas\Infraestructura\Contenedor\RegistroUnidadesMedida;
-use Ventas\Infraestructura\Contenedor\RegistroUsuarios;
+use Ventas\Productos\Infrastructure\RegistroProductos;
+use Ventas\Stock\Infrastructure\RegistroStock;
+use Ventas\UnidadesMedida\Infrastructure\RegistroUnidadesMedida;
+use Ventas\Usuarios\Infrastructure\RegistroUsuarios;
 use Ventas\Infraestructura\Contenedor\RegistroVentas;
 use Ventas\Infraestructura\Ventas\NuevaVenta\RegistroNuevaVenta;
 

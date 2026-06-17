@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Ventas\Aplicacion\Ventas\NuevaVenta;
 
-use Ventas\Dominio\Productos\Repositorios\ProductoRepository;
+use Ventas\Productos\Domain\Repositorios\ProductoRepository;
 use Ventas\Dominio\Ventas\NuevaVenta\Repositorios\ConfiguracionVentaRepository;
 
 final class InterpretarCodigoBalanzaVenta

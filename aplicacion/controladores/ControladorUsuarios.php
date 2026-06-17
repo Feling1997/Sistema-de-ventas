@@ -1,5 +1,4 @@
 <?php
-require_once __DIR__ . "/../modelos/Usuario.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
@@ -29,7 +28,7 @@ class ControladorUsuarios{
                 "fecha" => "creado_en"
             ], "usuario", "ASC");
             global $container;
-            $listarUsuarios = $container->get(\Ventas\Aplicacion\Usuarios\CasosUso\ListarUsuarios::class);
+            $listarUsuarios = $container->get(\Ventas\Usuarios\Application\ListarUsuarios::class);
             $usuarios_dominio = $listarUsuarios->ejecutar();
             $usuarios = [];
             foreach ($usuarios_dominio as $usuario_dominio) {
@@ -119,10 +118,19 @@ class ControladorUsuarios{
                             if(!in_array($rol, ["VENDEDOR", "ADMIN"], true))
                                 $error = "Rol no válido.";
                             else{
-                                if(Usuario::usuario_existe($usuario))
+                                global $container;
+                                $usuarioRepository = $container->get(\Ventas\Usuarios\Domain\Repositorios\UsuarioRepository::class);
+                                if($usuarioRepository->existeUsuario($usuario))
                                     $error = "El usuario ya existe.";
                                 else{
-                                    $ok=Usuario::crear_con_permisos($usuario, $clave, $rol, $activo, $rol === "ADMIN" ? [] : $permisos);
+                                    $ok=false;
+                                    try {
+                                        $crearUsuario = $container->get(\Ventas\Usuarios\Application\CrearUsuario::class);
+                                        $crearUsuario->ejecutar(new \Ventas\Usuarios\Domain\Entidades\Usuario(null, $usuario, password_hash($clave, PASSWORD_DEFAULT), $rol, $activo === 1, \Ventas\Usuarios\Domain\Entidades\PermisosUsuario::desdeLegacy($rol === "ADMIN" ? [] : $permisos)));
+                                        $ok=true;
+                                    } catch (Throwable $e) {
+                                        registrar_log("ControladorUsuarios::crear", $e->getMessage());
+                                    }
                                     if($ok){
                                         flash_ok("Usuario creado correctamente.");
                                         redirigir("index.php?c=usuarios&a=index");
@@ -152,7 +160,7 @@ class ControladorUsuarios{
         if($this->permiso_admin()){
             $id=(int)obtener_get("id",0);
             global $container;
-            $buscarUsuarioPorId = $container->get(\Ventas\Aplicacion\Usuarios\CasosUso\BuscarUsuarioPorId::class);
+            $buscarUsuarioPorId = $container->get(\Ventas\Usuarios\Application\BuscarUsuarioPorId::class);
             $usuario_dominio = $buscarUsuarioPorId->ejecutar($id);
             $u = null;
             if ($usuario_dominio !== null) {
@@ -192,7 +200,9 @@ class ControladorUsuarios{
                     $rol = (string)obtener_post("rol", "VENDEDOR");
                     $activo = (int)obtener_post("activo", 1);
                     $permisos = $this->permisos_post();
-                    $u_actual=Usuario::buscar_por_id($id);
+                    global $container;
+                    $buscarUsuarioPorId = $container->get(\Ventas\Usuarios\Application\BuscarUsuarioPorId::class);
+                    $u_actual=$buscarUsuarioPorId->ejecutar($id);
                     if($u_actual===null)
                         $error="Usuario no encontrado.";
                     else{
@@ -202,7 +212,8 @@ class ControladorUsuarios{
                             if(!in_array($rol, ["VENDEDOR", "ADMIN"], true))
                                 $error = "Rol no válido.";
                             else{
-                                if(Usuario::usuario_existe($usuario, $id))
+                                $usuarioRepository = $container->get(\Ventas\Usuarios\Domain\Repositorios\UsuarioRepository::class);
+                                if($usuarioRepository->existeUsuario($usuario, $id))
                                     $error = "El usuario ya existe.";
                                 else{
                                     $cambia_clave=false;
@@ -214,12 +225,25 @@ class ControladorUsuarios{
                                             $error="Clave inválida";
                                         else{
                                             $hash=password_hash($clave_nueva, PASSWORD_DEFAULT);
-                                            $ok=Usuario::actualizar_con_clave_permisos($id, $usuario, $hash, $rol, $activo, $rol === "ADMIN" ? [] : $permisos);
+                                            try {
+                                                $actualizarUsuario = $container->get(\Ventas\Usuarios\Application\ActualizarUsuario::class);
+                                                $actualizarUsuario->ejecutar(new \Ventas\Usuarios\Domain\Entidades\Usuario($id, $usuario, $u_actual->claveHash(), $rol, $activo === 1, \Ventas\Usuarios\Domain\Entidades\PermisosUsuario::desdeLegacy($rol === "ADMIN" ? [] : $permisos), $u_actual->creadoEn()));
+                                                $usuarioRepository->actualizarClave($id, $hash);
+                                                $ok=true;
+                                            } catch (Throwable $e) {
+                                                registrar_log("ControladorUsuarios::actualizar", $e->getMessage());
+                                            }
                                             if(!$ok)
                                                 $error="No se pudo actualizar el usuario (ver logs).";
                                         }
                                     }else{
-                                        $ok=Usuario::actualizar_sin_clave_permisos($id, $usuario, $rol, $activo, $rol === "ADMIN" ? [] : $permisos);
+                                        try {
+                                            $actualizarUsuario = $container->get(\Ventas\Usuarios\Application\ActualizarUsuario::class);
+                                            $actualizarUsuario->ejecutar(new \Ventas\Usuarios\Domain\Entidades\Usuario($id, $usuario, $u_actual->claveHash(), $rol, $activo === 1, \Ventas\Usuarios\Domain\Entidades\PermisosUsuario::desdeLegacy($rol === "ADMIN" ? [] : $permisos), $u_actual->creadoEn()));
+                                            $ok=true;
+                                        } catch (Throwable $e) {
+                                            registrar_log("ControladorUsuarios::actualizar", $e->getMessage());
+                                        }
                                         if(!$ok)
                                             $error="No se pudo actualizar el usuario (ver logs).";
                                     }
@@ -250,7 +274,9 @@ class ControladorUsuarios{
     public function eliminar():void{
         if($this->permiso_admin()){
             $id=(int)obtener_get("id",0);
-            $u=Usuario::buscar_por_id($id);
+            global $container;
+            $buscarUsuarioPorId = $container->get(\Ventas\Usuarios\Application\BuscarUsuarioPorId::class);
+            $u=$buscarUsuarioPorId->ejecutar($id);
             if($u===null){
                 flash_error("Usuario no encontrado.");
                 redirigir("index.php?c=usuarios&a=index");
@@ -261,15 +287,23 @@ class ControladorUsuarios{
                     flash_error("No puedes eliminar a ti mismo.");
                     redirigir("index.php?c=usuarios&a=index");
                 }else{
-                    if(Usuario::esta_relacionado_con_ventas($id)){
+                    $eliminarUsuario = $container->get(\Ventas\Usuarios\Application\EliminarUsuario::class);
+                    try {
+                        $eliminarUsuario->ejecutar($id, $id_logueado);
+                        flash_ok("Usuario eliminado correctamente.");
+                        redirigir("index.php?c=usuarios&a=index");
+                    } catch (\Ventas\Usuarios\Domain\Excepciones\UsuarioConVentasException $e) {
                         flash_error("No puedes eliminar un usuario con ventas asociadas.");
                         redirigir("index.php?c=usuarios&a=index");
-                    }else{
-                        $ok=Usuario::eliminar($id);
-                        if($ok)
-                            flash_ok("Usuario eliminado correctamente.");
-                        else
-                            flash_error("No se pudo eliminar el usuario (ver logs).");
+                    } catch (\Ventas\Usuarios\Domain\Excepciones\UsuarioActualNoEliminableException $e) {
+                        flash_error("No puedes eliminar a ti mismo.");
+                        redirigir("index.php?c=usuarios&a=index");
+                    } catch (\Ventas\Usuarios\Domain\Excepciones\UsuarioNoEncontradoException $e) {
+                        flash_error("Usuario no encontrado.");
+                        redirigir("index.php?c=usuarios&a=index");
+                    } catch (Throwable $e) {
+                        registrar_log("ControladorUsuarios::eliminar", $e->getMessage());
+                        flash_error("No se pudo eliminar el usuario (ver logs).");
                         redirigir("index.php?c=usuarios&a=index");
                     }
                 }

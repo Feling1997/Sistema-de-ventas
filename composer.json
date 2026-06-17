@@ -20,7 +20,28 @@
             "Ventas\\Impresoras\\Infrastructure\\": "src/impresoras/infrastructure/",
             "Ventas\\Clientes\\Application\\": "src/clientes/application/",
             "Ventas\\Clientes\\Domain\\": "src/clientes/domain/",
-            "Ventas\\Clientes\\Infrastructure\\": "src/clientes/infrastructure/"
+            "Ventas\\Clientes\\Infrastructure\\": "src/clientes/infrastructure/",
+            "Ventas\\Usuarios\\Application\\": "src/usuarios/application/",
+            "Ventas\\Usuarios\\Domain\\": "src/usuarios/domain/",
+            "Ventas\\Usuarios\\Infrastructure\\": "src/usuarios/infrastructure/",
+            "Ventas\\Stock\\Application\\": "src/stock/application/",
+            "Ventas\\Stock\\Domain\\": "src/stock/domain/",
+            "Ventas\\Stock\\Infrastructure\\": "src/stock/infrastructure/",
+            "Ventas\\Productos\\Application\\": "src/productos/application/",
+            "Ventas\\Productos\\Domain\\": "src/productos/domain/",
+            "Ventas\\Productos\\Infrastructure\\": "src/productos/infrastructure/",
+            "Ventas\\Presupuestos\\Application\\": "src/presupuestos/application/",
+            "Ventas\\Presupuestos\\Domain\\": "src/presupuestos/domain/",
+            "Ventas\\Presupuestos\\Infrastructure\\": "src/presupuestos/infrastructure/",
+            "Ventas\\Ventas\\Application\\": "src/ventas/application/",
+            "Ventas\\Ventas\\Domain\\": "src/ventas/domain/",
+            "Ventas\\Ventas\\Infrastructure\\": "src/ventas/infrastructure/",
+            "Ventas\\Auth\\Application\\": "src/auth/application/",
+            "Ventas\\Auth\\Domain\\": "src/auth/domain/",
+            "Ventas\\Auth\\Infrastructure\\": "src/auth/infrastructure/",
+            "Ventas\\Configuracion\\Application\\": "src/configuracion/application/",
+            "Ventas\\Configuracion\\Domain\\": "src/configuracion/domain/",
+            "Ventas\\Configuracion\\Infrastructure\\": "src/configuracion/infrastructure/"
         }
     }
 }

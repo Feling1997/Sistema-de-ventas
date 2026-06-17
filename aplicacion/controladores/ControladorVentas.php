@@ -160,7 +160,7 @@ class ControladorVentas {
         if ($this->permiso()) {
             global $container;
             $listarClientesVenta = $container->get(\Ventas\Aplicacion\Ventas\NuevaVenta\ListarClientesVenta::class);
-            $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
+            $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
             $obtenerCarritoVenta = $container->get(\Ventas\Aplicacion\Ventas\NuevaVenta\ObtenerCarritoVenta::class);
             $calcularTotalCarritoVenta = $container->get(\Ventas\Aplicacion\Ventas\NuevaVenta\CalcularTotalCarritoVenta::class);
             $obtenerFormularioVenta = $container->get(\Ventas\Aplicacion\Ventas\NuevaVenta\ObtenerFormularioVenta::class);
@@ -189,8 +189,8 @@ class ControladorVentas {
     public function buscar_productos_json(): void {
         if ($this->permiso()) {
             global $container;
-            $obtenerListaPrecioPredeterminada = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ObtenerListaPrecioPredeterminada::class);
-            $buscarProductosParaVenta = $container->get(\Ventas\Aplicacion\Productos\CasosUso\BuscarProductosParaVenta::class);
+            $obtenerListaPrecioPredeterminada = $container->get(\Ventas\ListasPrecios\Application\ObtenerListaPrecioPredeterminada::class);
+            $buscarProductosParaVenta = $container->get(\Ventas\Productos\Application\BuscarProductosParaVenta::class);
             $texto = trim((string)obtener_get("q", ""));
             $modo = trim((string)obtener_get("modo", "general"));
             $id_lista_precio = (int)obtener_get("id_lista_precio", $obtenerListaPrecioPredeterminada->ejecutar());
@@ -595,7 +595,7 @@ class ControladorVentas {
     {
         if ($this->permiso()) {
             global $container;
-            $listarImpresoras = $container->get(\Ventas\Aplicacion\Impresoras\CasosUso\ListarImpresoras::class);
+            $listarImpresoras = $container->get(\Ventas\Impresoras\Application\ListarImpresoras::class);
             header("Content-Type: application/json; charset=utf-8");
             echo json_encode(["ok" => true, "impresoras" => $listarImpresoras->ejecutar()], JSON_UNESCAPED_UNICODE);
         }

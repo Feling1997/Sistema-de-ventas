@@ -64,7 +64,7 @@ class ControladorStock {
                 "fecha" => "s.creado_en"
             ], "nombre", "ASC");
             global $container;
-            $listarStock = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStock::class);
+            $listarStock = $container->get(\Ventas\Stock\Application\ListarStock::class);
             $items = [];
             foreach ($listarStock->ejecutar() as $stock_dominio) {
                 $items[] = [
@@ -143,7 +143,7 @@ class ControladorStock {
             if ($datos_form !== [])
                 $s = array_merge($s, $datos_form);
             global $container;
-            $listarUnidadesMedida = $container->get(\Ventas\Aplicacion\UnidadesMedida\CasosUso\ListarUnidadesMedida::class);
+            $listarUnidadesMedida = $container->get(\Ventas\UnidadesMedida\Application\ListarUnidadesMedida::class);
             $unidades_medida = [];
             foreach ($listarUnidadesMedida->ejecutar() as $unidad_medida_dominio) {
                 $unidades_medida[] = [
@@ -226,8 +226,8 @@ class ControladorStock {
         if ($this->permiso()) {
             $id = (int)obtener_get("id", 0);
             global $container;
-            $buscarStockPorId = $container->get(\Ventas\Aplicacion\Stock\CasosUso\BuscarStockPorId::class);
-            $listarUnidadesMedida = $container->get(\Ventas\Aplicacion\UnidadesMedida\CasosUso\ListarUnidadesMedida::class);
+            $buscarStockPorId = $container->get(\Ventas\Stock\Application\BuscarStockPorId::class);
+            $listarUnidadesMedida = $container->get(\Ventas\UnidadesMedida\Application\ListarUnidadesMedida::class);
             $stock_dominio = $buscarStockPorId->ejecutar($id);
             if ($stock_dominio === null) {
                 flash_error("Stock no encontrado.");
@@ -409,10 +409,10 @@ class ControladorStock {
         if ($this->permiso()) {
             $id = (int)obtener_get("id", 0);
             global $container;
-            $buscarStockPorId = $container->get(\Ventas\Aplicacion\Stock\CasosUso\BuscarStockPorId::class);
-            $listarStock = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStock::class);
-            $listarListasPrecios = $container->get(\Ventas\Aplicacion\ListasPrecios\CasosUso\ListarListasPrecios::class);
-            $listarProductosPorStock = $container->get(\Ventas\Aplicacion\Productos\CasosUso\ListarProductosPorStock::class);
+            $buscarStockPorId = $container->get(\Ventas\Stock\Application\BuscarStockPorId::class);
+            $listarStock = $container->get(\Ventas\Stock\Application\ListarStock::class);
+            $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
+            $listarProductosPorStock = $container->get(\Ventas\Productos\Application\ListarProductosPorStock::class);
             $stock_dominio = $buscarStockPorId->ejecutar($id);
             if ($stock_dominio === null) {
                 flash_error("Stock no encontrado.");
@@ -536,7 +536,7 @@ class ControladorStock {
         if ($this->permiso()) {
             $formato = strtolower((string)obtener_get("formato", "html"));
             global $container;
-            $listarStock = $container->get(\Ventas\Aplicacion\Stock\CasosUso\ListarStock::class);
+            $listarStock = $container->get(\Ventas\Stock\Application\ListarStock::class);
             $items = [];
             foreach ($listarStock->ejecutar() as $stock_dominio) {
                 $items[] = [
@@ -744,7 +744,7 @@ class ControladorStock {
 
     private function listar_productos_por_stock(int $id_stock, string $orden_sql = "nombre ASC"): array {
         global $container;
-        $listarProductosPorStock = $container->get(\Ventas\Aplicacion\Productos\CasosUso\ListarProductosPorStock::class);
+        $listarProductosPorStock = $container->get(\Ventas\Productos\Application\ListarProductosPorStock::class);
         $lista = [];
         foreach ($listarProductosPorStock->ejecutar($id_stock) as $producto_dominio) {
             $lista[] = [

@@ -1,5 +1,4 @@
 <?php
-require_once __DIR__ . "/../modelos/Usuario.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
@@ -7,13 +6,11 @@ require_once __DIR__ . "/../../configuraciones/csrf.php";
 class ControladorAuth{
     public function login():void{
         iniciar_sesion();
+        global $container;
+        \Ventas\Auth\Infrastructure\RegistroAuth::registrar($container);
         if (auth_admin_local_habilitado()) {
-            $_SESSION["usuario_logueado"]=[
-                "id"=>0,
-                "usuario"=>"Sin login",
-                "rol"=>"ADMIN",
-                "permisos"=>[]
-            ];
+            $crearSesionSinLogin = $container->get(\Ventas\Auth\Application\CrearSesionSinLogin::class);
+            $crearSesionSinLogin->ejecutar();
             header("Location:index.php?c=ventas&a=inicio");
             return;
         }
@@ -29,21 +26,23 @@ class ControladorAuth{
                 if(texto_invalido($usuario) || texto_invalido($clave))
                     $error="Completa usuario o contraseña";
                 else{
-                    $u=Usuario::buscar_por_usuario($usuario);
+                    $usuarioRepository = $container->get(\Ventas\Usuarios\Domain\Repositorios\UsuarioRepository::class);
+                    $u=$usuarioRepository->buscarPorUsuario($usuario);
                     if($u===null)
                         $error="Usuario o contraseña incorrectos";
                     else{
-                        if((int)($u["activo"] ?? 0) !== 1)
+                        if(!$u->activo())
                             $error="Usuario inactivo";
-                        else if(!password_verify($clave,$u["clave"]))
+                        else if(!password_verify($clave,(string)$u->claveHash()))
                             $error="Usuario o contraseña incorrectos";
                         else{
-                            $_SESSION["usuario_logueado"]=[
-                                "id"=>(int)$u["id"],
-                                "usuario"=>$u["usuario"],
-                                "rol"=>$u["rol"],
-                                "permisos"=>Usuario::permisos_array($u["permisos"] ?? "[]")
-                            ];
+                            $iniciarSesionAuth = $container->get(\Ventas\Auth\Application\IniciarSesionAuth::class);
+                            $iniciarSesionAuth->ejecutar([
+                                "id"=>(int)$u->id(),
+                                "usuario"=>$u->usuario(),
+                                "rol"=>$u->rol(),
+                                "permisos"=>$u->permisos()->comoArray()
+                            ]);
                             header("Location:index.php?c=ventas&a=inicio");
                             return;
                         }
@@ -57,9 +56,10 @@ class ControladorAuth{
     }
 
     public function salir():void{
-        iniciar_sesion();
-        $_SESSION=[];
-        session_destroy();
+        global $container;
+        \Ventas\Auth\Infrastructure\RegistroAuth::registrar($container);
+        $cerrarSesionAuth = $container->get(\Ventas\Auth\Application\CerrarSesionAuth::class);
+        $cerrarSesionAuth->ejecutar();
         header("Location:index.php?c=auth&a=login");
     }
 }
