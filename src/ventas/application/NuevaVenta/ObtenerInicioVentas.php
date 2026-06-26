@@ -42,7 +42,7 @@ final class ObtenerInicioVentas
         if ((string) ($configuracion['mostrar_reparaciones'] ?? '1') === '1') {
             $modulos[] = [
                 'titulo' => 'Reparaciones',
-                'texto' => 'Abrir el sistema Python desde Ventas.',
+                'texto' => 'Abrir Reparaciones Laravel desde Ventas.',
                 'icono' => 'bi-tools',
                 'clase' => 'modulo-reparaciones',
                 'url' => $this->normalizarUrlReparaciones((string) ($configuracion['url_reparaciones'] ?? '')),
@@ -77,7 +77,9 @@ final class ObtenerInicioVentas
         $normalizada = trim($url);
 
         if ($normalizada === '') {
-            $normalizada = 'index.php?c=reparaciones&a=index';
+            $normalizada = '/Sistema-de-ventas/laravel/public/reparaciones';
+        } elseif (str_contains($normalizada, 'index.php?c=reparaciones')) {
+            $normalizada = '/Sistema-de-ventas/laravel/public/reparaciones';
         }
 
         return $normalizada;

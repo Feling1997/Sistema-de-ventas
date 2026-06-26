@@ -1,14 +1,55 @@
 <?php
-require_once __DIR__ . "/../modelos/Stock.php";
-require_once __DIR__ . "/../modelos/Producto.php";
-require_once __DIR__ . "/../modelos/UnidadMedida.php";
-require_once __DIR__ . "/../modelos/ListaPrecio.php";
 require_once __DIR__ . "/../../configuraciones/base_datos.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
 
 class ControladorStock {
+    private function stockDominioAArray(object $stock): array {
+        return [
+            "id" => $stock->id(),
+            "nombre" => $stock->nombre(),
+            "unidad" => $stock->unidad(),
+            "tipo_stock" => $stock->tipoStock(),
+            "cantidad" => $stock->cantidad(),
+            "stock_minimo" => $stock->stockMinimo(),
+            "stock_maximo" => $stock->stockMaximo(),
+            "precio_costo" => $stock->precioCosto(),
+            "moneda_costo" => $stock->monedaCosto(),
+            "costo_origen" => $stock->costoOrigen(),
+            "activo" => $stock->activo() ? 1 : 0,
+            "unidad_decimales" => $stock->unidadDecimales(),
+            "creado_en" => $stock->creadoEn(),
+        ];
+    }
+
+    private function buscar_stock_por_id_array(int $id): ?array {
+        global $container;
+        $buscarStockPorId = $container->get(\Ventas\Stock\Application\BuscarStockPorId::class);
+        $stock = $buscarStockPorId->ejecutar($id);
+        $resultado = null;
+        if ($stock !== null) {
+            $resultado = $this->stockDominioAArray($stock);
+        }
+        return $resultado;
+    }
+
+    private function cotizacion_dolar_stock(): float {
+        global $container;
+        $obtenerCotizacionDolarStock = $container->get(\Ventas\Stock\Application\ObtenerCotizacionDolarStock::class);
+        $resultado = $obtenerCotizacionDolarStock->ejecutar();
+
+        return $resultado;
+    }
+
+    private function costo_stock_en_pesos(float $costo_origen, string $moneda): float {
+        global $container;
+        $obtenerCostoEnPesosStock = $container->get(\Ventas\Stock\Application\ObtenerCostoEnPesosStock::class);
+        $resultado = $obtenerCostoEnPesosStock->ejecutar($costo_origen, $moneda);
+
+        return $resultado;
+    }
+
     private function datos_nueva_unidad_post(): array {
         $simple = trim((string)obtener_post("nueva_unidad_simple", ""));
         if ($simple !== "") {
@@ -36,6 +77,12 @@ class ControladorStock {
                 $unidad = "";
         }
         return $unidad;
+    }
+
+    private function asegurar_unidad_desde_form(string $unidad, array $datos): string {
+        global $container;
+        $asegurarUnidadMedidaDesdeFormulario = $container->get(\Ventas\UnidadesMedida\Application\AsegurarUnidadMedidaDesdeFormulario::class);
+        return $asegurarUnidadMedidaDesdeFormulario->ejecutar($unidad, $datos);
     }
 
     private function permiso(): bool {
@@ -127,8 +174,11 @@ class ControladorStock {
             if (!in_array($filtro_alertas_stock, ["bajo", "criticos"], true))
                 $filtro_alertas_stock = "bajo";
             $mostrar_alertas_leidas = (int)obtener_get("mostrar_alertas_leidas", 0) === 1;
-            $alertas_stock_bajo = Stock::alertas_stock_bajo($id_usuario, $mostrar_alertas_leidas, $filtro_alertas_stock);
-            $resumen_alertas_stock = Stock::resumen_alertas_stock_bajo($id_usuario);
+            global $container;
+            $alertasStockBajo = $container->get(\Ventas\Stock\Application\AlertasStockBajo::class);
+            $resumenAlertasStockBajo = $container->get(\Ventas\Stock\Application\ResumenAlertasStockBajo::class);
+            $alertas_stock_bajo = $alertasStockBajo->ejecutar($id_usuario, $mostrar_alertas_leidas, $filtro_alertas_stock);
+            $resumen_alertas_stock = $resumenAlertasStockBajo->ejecutar($id_usuario);
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/stock/index.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -155,6 +205,7 @@ class ControladorStock {
                     "activo" => $unidad_medida_dominio->activo() ? 1 : 0,
                 ];
             }
+            $cotizacion_dolar_stock = $this->cotizacion_dolar_stock();
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/stock/formulario.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -183,7 +234,7 @@ class ControladorStock {
                     else {
                         if (texto_invalido($unidad))
                             $unidad = "u";
-                        $unidad = UnidadMedida::asegurar_desde_form($unidad, $this->datos_nueva_unidad_post());
+                        $unidad = $this->asegurar_unidad_desde_form($unidad, $this->datos_nueva_unidad_post());
                         if ($cantidad < 0)
                             $cantidad = 0;
                         if ($precio_costo < 0)
@@ -192,7 +243,11 @@ class ControladorStock {
                             $stock_minimo = 0;
                         if ($stock_maximo < 0)
                             $stock_maximo = 0;
-                        $ok = Stock::crear_con_tipo($nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock, $moneda_costo);
+                        global $container;
+                        $costo_origen = max(0, (float)$precio_costo);
+                        $precio_costo = $this->costo_stock_en_pesos($costo_origen, $moneda_costo);
+                        $crearStock = $container->get(\Ventas\Stock\Application\CrearStock::class);
+                        $ok = $crearStock->ejecutar($nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock, $moneda_costo, $costo_origen);
                         if ($ok) {
                             flash_ok("Stock creado correctamente.");
                             redirigir("index.php?c=stock&a=index");
@@ -263,6 +318,7 @@ class ControladorStock {
                         "activo" => $unidad_medida_dominio->activo() ? 1 : 0,
                     ];
                 }
+                $cotizacion_dolar_stock = $this->cotizacion_dolar_stock();
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/stock/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -279,10 +335,13 @@ class ControladorStock {
                     $error = "Token inválido. Recargá la página.";
                 else {
                     $id = (int)obtener_post("id", 0);
-                    $s_actual = Stock::buscar_por_id($id);
-                    if ($s_actual === null)
+                    global $container;
+                    $buscarStockPorId = $container->get(\Ventas\Stock\Application\BuscarStockPorId::class);
+                    $stock_actual = $buscarStockPorId->ejecutar($id);
+                    if ($stock_actual === null)
                         $error = "Stock no encontrado.";
                     else {
+                        $s_actual = $this->stockDominioAArray($stock_actual);
                         $nombre = trim((string)obtener_post("nombre", ""));
                         $unidad = $this->resolver_unidad_form((string)obtener_post("unidad", "u"));
                         $tipo_stock = trim((string)obtener_post("tipo_stock", (string)($s_actual["tipo_stock"] ?? "general")));
@@ -297,7 +356,7 @@ class ControladorStock {
                         else {
                             if (texto_invalido($unidad))
                                 $unidad = "u";
-                            $unidad = UnidadMedida::asegurar_desde_form($unidad, $this->datos_nueva_unidad_post());
+                            $unidad = $this->asegurar_unidad_desde_form($unidad, $this->datos_nueva_unidad_post());
                             if ($cantidad < 0)
                                 $cantidad = 0;
                             if ($precio_costo < 0)
@@ -306,12 +365,15 @@ class ControladorStock {
                                 $stock_minimo = 0;
                             if ($stock_maximo < 0)
                                 $stock_maximo = 0;
-                            $ok = Stock::actualizar_con_tipo($id, $nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock, $moneda_costo);
+                            $costo_origen = max(0, (float)$precio_costo);
+                            $costo_nuevo = $this->costo_stock_en_pesos($costo_origen, $moneda_costo);
+                            $actualizarStock = $container->get(\Ventas\Stock\Application\ActualizarStock::class);
+                            $ok = $actualizarStock->ejecutar($id, $nombre, $unidad, $cantidad, $costo_nuevo, $activo, $stock_minimo, $stock_maximo, $tipo_stock, $moneda_costo, $costo_origen);
                             if ($ok) {
                                 $costo_anterior = (float)$s_actual["precio_costo"];
-                                $costo_nuevo = Stock::costo_en_pesos((float)$precio_costo, $moneda_costo);
                                 if (abs($costo_anterior - $costo_nuevo) > 0.00001) {
-                                    $ok_recalc = Stock::recalcular_precios_productos_por_stock($id);
+                                    $recalcularPreciosProductosPorStock = $container->get(\Ventas\Stock\Application\RecalcularPreciosProductosPorStock::class);
+                                    $ok_recalc = $recalcularPreciosProductosPorStock->ejecutar($id);
                                     if ($ok_recalc)
                                         flash_ok("Stock actualizado y precios de productos recalculados.");
                                     else
@@ -360,13 +422,16 @@ class ControladorStock {
                 else {
                     $id = (int)obtener_post("id", 0);
                     $cantidad = parsear_numero_form(obtener_post("cantidad_agregar", 0), 0);
-                    $s = Stock::buscar_por_id($id);
+                    global $container;
+                    $buscarStockPorId = $container->get(\Ventas\Stock\Application\BuscarStockPorId::class);
+                    $s = $buscarStockPorId->ejecutar($id);
                     if ($s === null)
                         $error = "Stock no encontrado.";
                     else if ($cantidad <= 0)
                         $error = "Ingresa una cantidad mayor a cero.";
                     else {
-                        $ok = Stock::sumar_cantidad($id, $cantidad);
+                        $sumarCantidadStock = $container->get(\Ventas\Stock\Application\SumarCantidadStock::class);
+                        $ok = $sumarCantidadStock->ejecutar($id, $cantidad);
                         if ($ok)
                             flash_ok("Stock agregado correctamente.");
                         else
@@ -395,7 +460,9 @@ class ControladorStock {
             if ($id_producto <= 0) {
                 flash_error("Producto invalido.");
             } else {
-                $ok = Stock::marcar_alerta_leida($id_producto, $id_usuario);
+                global $container;
+                $marcarAlertaLeida = $container->get(\Ventas\Stock\Application\MarcarAlertaLeida::class);
+                $ok = $marcarAlertaLeida->ejecutar($id_producto, $id_usuario);
                 if ($ok)
                     flash_ok("Alerta de stock marcada como leida.");
                 else
@@ -606,8 +673,11 @@ class ControladorStock {
 
     public function exportar_productos(): void {
         if ($this->permiso()) {
+            global $container;
+            $obtenerPrecioProductoCargado = $container->get(\Ventas\ListasPrecios\Application\ObtenerPrecioProductoCargado::class);
+            $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
             $id = (int)obtener_get("id", 0);
-            $s = Stock::buscar_por_id($id);
+            $s = $this->buscar_stock_por_id_array($id);
             if ($s === null) {
                 flash_error("Stock no encontrado.");
                 redirigir("index.php?c=stock&a=index");
@@ -623,9 +693,9 @@ class ControladorStock {
             $productos = $this->listar_productos_por_stock($id);
             $titulo = "Articulos de " . (string)($s["nombre"] ?? "stock");
             $nombre_lista = "";
-            foreach (ListaPrecio::listar(true) as $lista) {
-                if ((int)$lista["id"] === $id_lista)
-                    $nombre_lista = (string)$lista["nombre"];
+            foreach ($listarListasPrecios->ejecutar(true) as $lista) {
+                if ((int)$lista->id() === $id_lista)
+                    $nombre_lista = (string)$lista->nombre();
             }
             if ($nombre_lista === "") {
                 flash_error("Selecciona una lista de precios cargada.");
@@ -635,7 +705,7 @@ class ControladorStock {
             $titulo .= " - " . $nombre_lista;
             $base_archivo = "articulos_stock_" . (string)($s["nombre"] ?? "stock") . "_" . $nombre_lista;
             foreach ($productos as &$p) {
-                $precio_lista = ListaPrecio::precio_producto_cargado((int)($p["id"] ?? 0), $id_lista);
+                $precio_lista = $obtenerPrecioProductoCargado->ejecutar((int)($p["id"] ?? 0), $id_lista);
                 $p["precio_final"] = ($precio_lista !== null && (float)$precio_lista["precio"] > 0) ? (float)$precio_lista["precio"] : 0;
             }
             unset($p);
@@ -674,7 +744,9 @@ class ControladorStock {
     public function faltantes(): void {
         if ($this->permiso()) {
             $solo_minimo = (int)obtener_get("solo_minimo", 1) === 1;
-            $items = Stock::listar_faltantes($solo_minimo);
+            global $container;
+            $listarFaltantes = $container->get(\Ventas\Stock\Application\ListarFaltantes::class);
+            $items = $listarFaltantes->ejecutar($solo_minimo);
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/stock/faltantes.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -685,7 +757,9 @@ class ControladorStock {
         if ($this->permiso()) {
             $solo_minimo = (int)obtener_get("solo_minimo", 1) === 1;
             $formato = strtolower((string)obtener_get("formato", "html"));
-            $items = Stock::listar_faltantes($solo_minimo);
+            global $container;
+            $listarFaltantes = $container->get(\Ventas\Stock\Application\ListarFaltantes::class);
+            $items = $listarFaltantes->ejecutar($solo_minimo);
             $titulo = $solo_minimo ? "Pedido sugerido por stock minimo" : "Reporte completo de faltantes";
             $base_archivo = $solo_minimo ? "pedido_sugerido_stock_minimo" : "faltantes_stock_completo";
             if ($formato === "csv" || $formato === "xls" || $formato === "excel") {
@@ -784,16 +858,19 @@ class ControladorStock {
     public function eliminar(): void {
         if ($this->permiso()) {
             $id = (int)obtener_get("id", 0);
-            $s = Stock::buscar_por_id($id);
+            $s = $this->buscar_stock_por_id_array($id);
             if ($s === null) {
                 flash_error("Stock no encontrado.");
                 redirigir("index.php?c=stock&a=index");
             } else {
-                if (Stock::esta_asociado_a_productos($id)) {
+                global $container;
+                $estaAsociadoAProductosStock = $container->get(\Ventas\Stock\Application\EstaAsociadoAProductosStock::class);
+                if ($estaAsociadoAProductosStock->ejecutar($id)) {
                     flash_error("No se puede eliminar: el stock está asociado a productos.");
                     redirigir("index.php?c=stock&a=index");
                 } else {
-                    $ok = Stock::eliminar($id);
+                    $eliminarStock = $container->get(\Ventas\Stock\Application\EliminarStock::class);
+                    $ok = $eliminarStock->ejecutar($id);
                     if ($ok)
                         flash_ok("Stock eliminado.");
                     else

@@ -1,11 +1,41 @@
 <?php
-require_once __DIR__ . "/../modelos/CuentaCorriente.php";
-require_once __DIR__ . "/../modelos/Cliente.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
 
 class ControladorCuentasCorrientes {
+    private function container(): \Ventas\Infraestructura\Contenedor\Container {
+        global $container;
+
+        if (!$container->has(\Ventas\CuentasCorrientes\Application\ListarCuotasPendientesDetalle::class)) {
+            \Ventas\CuentasCorrientes\Infrastructure\RegistroCuentasCorrientes::registrar($container);
+        }
+
+        if (!$container->has(\Ventas\Clientes\Application\ListarClientes::class)) {
+            \Ventas\Clientes\Infrastructure\RegistroClientes::registrar($container);
+        }
+
+        return $container;
+    }
+
+    private function cliente_a_array(\Ventas\Clientes\Domain\Entidades\Cliente $cliente): array {
+        $datos = [
+            "id" => $cliente->id(),
+            "nombre" => $cliente->nombre(),
+            "dni" => $cliente->documento(),
+            "tipo_documento" => $cliente->tipoDocumento(),
+            "condicion_iva" => $cliente->condicionIva(),
+            "email" => $cliente->email(),
+            "id_lista_precio" => $cliente->idListaPrecio(),
+            "lista_precio_nombre" => $cliente->listaPrecioNombre(),
+            "telefono" => $cliente->telefono(),
+            "direccion" => $cliente->direccion(),
+            "creado_en" => $cliente->creadoEn(),
+        ];
+
+        return $datos;
+    }
+
     private function permiso(): bool {
         if (!require_login()) {
             flash_error("Tenes que iniciar sesion.");
@@ -20,6 +50,7 @@ class ControladorCuentasCorrientes {
 
     public function index(): void {
         if ($this->permiso()) {
+            $container = $this->container();
             $buscar = trim((string)obtener_get("buscar", ""));
             $estado = strtolower(trim((string)obtener_get("estado", "todos")));
             $orden_cuentas = orden_parametros([
@@ -38,12 +69,12 @@ class ControladorCuentasCorrientes {
                 $estado = "todos";
             if (!in_array($orden, ["vencimiento", "fecha", "cliente", "nombre", "saldo", "monto", "precio", "stock", "estado"], true))
                 $orden = "vencimiento";
-            $cuotas = CuentaCorriente::cuotas_pendientes_detalle($buscar, $estado, $orden, $orden_cuentas["direccion"]);
+            $cuotas = $container->get(\Ventas\CuentasCorrientes\Application\ListarCuotasPendientesDetalle::class)->ejecutar($buscar, $estado, $orden, $orden_cuentas["direccion"]);
             $vencidas = array_values(array_filter($cuotas, fn($q) => (int)($q["vencida"] ?? 0) === 1));
             $proximas = array_values(array_filter($cuotas, fn($q) => (int)($q["vencida"] ?? 0) !== 1));
-            $resumen = CuentaCorriente::resumen_general();
-            $recibos = CuentaCorriente::listar_recibos(50);
-            $saldos_favor = CuentaCorriente::saldos_favor_clientes();
+            $resumen = $container->get(\Ventas\CuentasCorrientes\Application\ObtenerResumenGeneralCuentaCorriente::class)->ejecutar();
+            $recibos = $container->get(\Ventas\CuentasCorrientes\Application\ListarRecibosCuentaCorriente::class)->ejecutar(50);
+            $saldos_favor = $container->get(\Ventas\CuentasCorrientes\Application\ListarSaldosFavorClientes::class)->ejecutar();
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/cuentas_corrientes/index.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -52,8 +83,9 @@ class ControladorCuentasCorrientes {
 
     public function pagar_cuota(): void {
         if ($this->permiso()) {
+            $container = $this->container();
             $id = (int)obtener_get("id", 0);
-            CuentaCorriente::marcar_cuota_pagada($id)
+            $container->get(\Ventas\CuentasCorrientes\Application\MarcarCuotaPagada::class)->ejecutar($id)
                 ? flash_ok("Cuota marcada como pagada.")
                 : flash_error("No se pudo pagar la cuota.");
             redirigir("index.php?c=cuentas_corrientes&a=index");
@@ -62,8 +94,9 @@ class ControladorCuentasCorrientes {
 
     public function cancelar(): void {
         if ($this->permiso()) {
+            $container = $this->container();
             $id = (int)obtener_get("id", 0);
-            CuentaCorriente::cancelar($id)
+            $container->get(\Ventas\CuentasCorrientes\Application\CancelarCuentaCorriente::class)->ejecutar($id)
                 ? flash_ok("Cuenta corriente cancelada.")
                 : flash_error("No se pudo cancelar la cuenta.");
             redirigir("index.php?c=cuentas_corrientes&a=index");
@@ -72,12 +105,20 @@ class ControladorCuentasCorrientes {
 
     public function marcar_alertas_leidas(): void {
         if ($this->permiso()) {
+            $container = $this->container();
             if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
                 flash_error("Acceso invalido.");
                 redirigir("index.php?c=cuentas_corrientes&a=index");
             }
             $id_usuario = (int)($_SESSION["usuario_logueado"]["id"] ?? 0);
-            CuentaCorriente::marcar_alertas_leidas($id_usuario)
+            $alertas_marcadas = false;
+            try {
+                $container->get(\Ventas\CuentasCorrientes\Application\MarcarAlertasLeidas::class)->ejecutar($id_usuario);
+                $alertas_marcadas = true;
+            } catch (Throwable $e) {
+                $alertas_marcadas = false;
+            }
+            $alertas_marcadas
                 ? flash_ok("Alertas marcadas como leidas.")
                 : flash_error("No se pudieron marcar las alertas.");
             redirigir("index.php?c=cuentas_corrientes&a=index");
@@ -86,13 +127,14 @@ class ControladorCuentasCorrientes {
 
     public function recibo(): void {
         if ($this->permiso()) {
+            $container = $this->container();
             $id = (int)obtener_get("id", 0);
-            $cuenta = CuentaCorriente::buscar_cuenta($id);
+            $cuenta = $container->get(\Ventas\CuentasCorrientes\Application\BuscarCuentaCorrientePorId::class)->ejecutar($id);
             if ($cuenta === null || (float)$cuenta["saldo"] <= 0) {
                 flash_error("Cuenta sin deuda pendiente.");
                 redirigir("index.php?c=cuentas_corrientes&a=index");
             }
-            $cuotas = CuentaCorriente::cuotas_pendientes($id);
+            $cuotas = $container->get(\Ventas\CuentasCorrientes\Application\ListarCuotasPendientes::class)->ejecutar($id);
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/cuentas_corrientes/recibo.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -101,7 +143,11 @@ class ControladorCuentasCorrientes {
 
     public function anticipo(): void {
         if ($this->permiso()) {
-            $clientes = Cliente::listar_todos();
+            $container = $this->container();
+            $clientes = [];
+            foreach ($container->get(\Ventas\Clientes\Application\ListarClientes::class)->ejecutar() as $cliente) {
+                $clientes[] = $this->cliente_a_array($cliente);
+            }
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/cuentas_corrientes/anticipo.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -110,6 +156,7 @@ class ControladorCuentasCorrientes {
 
     public function generar_anticipo(): void {
         if ($this->permiso()) {
+            $container = $this->container();
             if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
                 flash_error("Acceso invalido.");
                 redirigir("index.php?c=cuentas_corrientes&a=index");
@@ -119,7 +166,7 @@ class ControladorCuentasCorrientes {
             $monto = parsear_numero_form(obtener_post("monto", 0), 0);
             $forma_pago = trim((string)obtener_post("forma_pago", "contado"));
             $observacion = trim((string)obtener_post("observacion", ""));
-            if ($id_cliente <= 0 || Cliente::buscar_por_id($id_cliente) === null) {
+            if ($id_cliente <= 0 || $container->get(\Ventas\Clientes\Application\BuscarClientePorId::class)->ejecutar($id_cliente) === null) {
                 flash_error("Selecciona un cliente valido.");
                 redirigir("index.php?c=cuentas_corrientes&a=anticipo");
                 return;
@@ -129,7 +176,8 @@ class ControladorCuentasCorrientes {
                 redirigir("index.php?c=cuentas_corrientes&a=anticipo");
                 return;
             }
-            $id_recibo = CuentaCorriente::registrar_anticipo($id_cliente, $monto, $forma_pago, $observacion);
+            $resultado = $container->get(\Ventas\CuentasCorrientes\Application\RegistrarAnticipoCuentaCorriente::class)->ejecutar($id_cliente, $monto, $observacion, (int)($_SESSION["usuario_logueado"]["id"] ?? 0), $forma_pago);
+            $id_recibo = (int)($resultado["id_recibo"] ?? 0);
             if ($id_recibo > 0) {
                 $imprimir = (int)obtener_post("imprimir", 0) === 1 ? "&imprimir=1" : "";
                 redirigir("index.php?c=cuentas_corrientes&a=ver_recibo&id=" . $id_recibo . $imprimir);
@@ -142,6 +190,7 @@ class ControladorCuentasCorrientes {
 
     public function generar_recibo(): void {
         if ($this->permiso()) {
+            $container = $this->container();
             if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
                 flash_error("Acceso invalido.");
                 redirigir("index.php?c=cuentas_corrientes&a=index");
@@ -154,7 +203,7 @@ class ControladorCuentasCorrientes {
             if (!is_array($cuotas))
                 $cuotas = [];
             $ids_cuotas = array_map("intval", $cuotas);
-            $cuenta = CuentaCorriente::buscar_cuenta($id_cuenta);
+            $cuenta = $container->get(\Ventas\CuentasCorrientes\Application\BuscarCuentaCorrientePorId::class)->ejecutar($id_cuenta);
             if ($cuenta === null || (float)$cuenta["saldo"] <= 0) {
                 flash_error("Cuenta sin deuda pendiente.");
                 redirigir("index.php?c=cuentas_corrientes&a=index");
@@ -168,7 +217,7 @@ class ControladorCuentasCorrientes {
             }
             $pendiente_cuotas = 0.0;
             $ids_seleccionadas = array_flip(array_filter($ids_cuotas, fn($id) => $id > 0));
-            foreach (CuentaCorriente::cuotas_pendientes($id_cuenta) as $cuota) {
+            foreach ($container->get(\Ventas\CuentasCorrientes\Application\ListarCuotasPendientes::class)->ejecutar($id_cuenta) as $cuota) {
                 if (count($ids_seleccionadas) > 0 && !isset($ids_seleccionadas[(int)$cuota["id"]]))
                     continue;
                 $pendiente_cuotas += max(0, (float)($cuota["pendiente"] ?? 0));
@@ -179,7 +228,8 @@ class ControladorCuentasCorrientes {
                 redirigir("index.php?c=cuentas_corrientes&a=recibo&id=" . $id_cuenta);
                 return;
             }
-            $id_recibo = CuentaCorriente::registrar_pago($id_cuenta, $monto, $ids_cuotas, $forma_pago, $observacion);
+            $resultado = $container->get(\Ventas\CuentasCorrientes\Application\RegistrarPagoCuentaCorriente::class)->ejecutar($id_cuenta, $ids_cuotas, $monto, $observacion, (int)($_SESSION["usuario_logueado"]["id"] ?? 0), $forma_pago);
+            $id_recibo = (int)($resultado["id_recibo"] ?? 0);
             if ($id_recibo > 0) {
                 $imprimir = (int)obtener_post("imprimir", 0) === 1 ? "&imprimir=1" : "";
                 redirigir("index.php?c=cuentas_corrientes&a=ver_recibo&id=" . $id_recibo . $imprimir);
@@ -192,8 +242,9 @@ class ControladorCuentasCorrientes {
 
     public function ver_recibo(): void {
         if ($this->permiso()) {
+            $container = $this->container();
             $id = (int)obtener_get("id", 0);
-            $recibo = CuentaCorriente::buscar_recibo($id);
+            $recibo = $container->get(\Ventas\CuentasCorrientes\Application\BuscarReciboCuentaCorriente::class)->ejecutar($id);
             if ($recibo === null) {
                 flash_error("Recibo no encontrado.");
                 redirigir("index.php?c=cuentas_corrientes&a=index");

@@ -1,15 +1,84 @@
 <?php
-require_once __DIR__ . "/../modelos/Stock.php";
-require_once __DIR__ . "/../modelos/ListaPrecio.php";
-require_once __DIR__ . "/../modelos/Venta.php";
-require_once __DIR__ . "/../modelos/ConfiguracionSistema.php";
-require_once __DIR__ . "/../modelos/Producto.php";
 require_once __DIR__ . "/../../configuraciones/base_datos.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
 
 class ControladorExportaciones {
+    private function contenedor_ventas(): \Ventas\Infraestructura\Contenedor\Container {
+        global $container;
+
+        if (!$container instanceof \Ventas\Infraestructura\Contenedor\Container) {
+            $container = new \Ventas\Infraestructura\Contenedor\Container();
+        }
+
+        if (!$container->has(\Ventas\Ventas\Application\ObtenerResumenVentasPeriodo::class)) {
+            \Ventas\Ventas\Infrastructure\RegistroVentas::registrar($container);
+        }
+
+        $resultado = $container;
+
+        return $resultado;
+    }
+
+    private function obtener_resumen_ventas_periodo_modular(string $desde, string $hasta): array {
+        $container = $this->contenedor_ventas();
+        $listarVentasPeriodo = $container->get(\Ventas\Ventas\Application\ListarVentasPeriodo::class);
+        $obtenerResumenVentasPeriodo = $container->get(\Ventas\Ventas\Application\ObtenerResumenVentasPeriodo::class);
+        $ventas = $listarVentasPeriodo->ejecutar($desde, $hasta, "fecha", "DESC");
+        $resultado = $obtenerResumenVentasPeriodo->ejecutar($ventas);
+
+        return $resultado;
+    }
+
+    private function inicializar_esquema_ventas_modular(): bool {
+        $container = $this->contenedor_ventas();
+        $casoUso = $container->get(\Ventas\Ventas\Application\InicializarEsquemaVentas::class);
+        $resultado = $casoUso->ejecutar();
+
+        return $resultado;
+    }
+
+    private function obtener_configuracion_balanza_modular(): array {
+        global $container;
+
+        if (!$container instanceof \Ventas\Infraestructura\Contenedor\Container) {
+            $container = new \Ventas\Infraestructura\Contenedor\Container();
+        }
+
+        if (!$container->has(\Ventas\Configuracion\Application\ObtenerConfiguracionBalanza::class)) {
+            \Ventas\Configuracion\Infrastructure\RegistroConfiguracion::registrar($container);
+        }
+
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\ObtenerConfiguracionBalanza::class);
+        $resultado = $caso_uso->ejecutar();
+
+        return $resultado;
+    }
+
+    private function listaPrecioDominioAArray(object $lista): array {
+        $resultado = [
+            "id" => $lista->id(),
+            "nombre" => $lista->nombre(),
+            "activo" => $lista->activo() ? 1 : 0,
+            "creado_en" => $lista->creadoEn(),
+        ];
+
+        return $resultado;
+    }
+
+    private function listar_listas_precios_activas(): array {
+        global $container;
+        $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
+        $resultado = [];
+
+        foreach ($listarListasPrecios->ejecutar(true) as $lista) {
+            $resultado[] = $this->listaPrecioDominioAArray($lista);
+        }
+
+        return $resultado;
+    }
+
     private function permiso(): bool {
         if (!require_login()) {
             flash_error("Tenes que iniciar sesion.");
@@ -26,8 +95,27 @@ class ControladorExportaciones {
 
     public function index(): void {
         if ($this->permiso()) {
-            $listas = ListaPrecio::listar(true);
-            $stocks = Stock::listar_todos();
+            $listas = $this->listar_listas_precios_activas();
+            global $container;
+            $listarStock = $container->get(\Ventas\Stock\Application\ListarStock::class);
+            $stocks = [];
+            foreach ($listarStock->ejecutar() as $stock_dominio) {
+                $stocks[] = [
+                    "id" => $stock_dominio->id(),
+                    "nombre" => $stock_dominio->nombre(),
+                    "unidad" => $stock_dominio->unidad(),
+                    "tipo_stock" => $stock_dominio->tipoStock(),
+                    "cantidad" => $stock_dominio->cantidad(),
+                    "stock_minimo" => $stock_dominio->stockMinimo(),
+                    "stock_maximo" => $stock_dominio->stockMaximo(),
+                    "precio_costo" => $stock_dominio->precioCosto(),
+                    "moneda_costo" => $stock_dominio->monedaCosto(),
+                    "costo_origen" => $stock_dominio->costoOrigen(),
+                    "activo" => $stock_dominio->activo() ? 1 : 0,
+                    "unidad_decimales" => $stock_dominio->unidadDecimales(),
+                    "creado_en" => $stock_dominio->creadoEn(),
+                ];
+            }
             usort($listas, fn($a, $b) => strcasecmp((string)($a["nombre"] ?? ""), (string)($b["nombre"] ?? "")));
             usort($stocks, fn($a, $b) => strcasecmp((string)($a["nombre"] ?? ""), (string)($b["nombre"] ?? "")));
             include __DIR__ . "/../vistas/parciales/encabezado.php";
@@ -112,24 +200,20 @@ class ControladorExportaciones {
     }
 
     private function exportar_balanza(int $id_lista, string $formato): void {
-        $config = ConfiguracionSistema::obtener();
-        $plu_digitos = max(1, min(8, (int)($config["balanza_plu_digitos"] ?? 5)));
-        $nombre_lista = "";
-        foreach (ListaPrecio::listar(true) as $lista) {
-            if ((int)$lista["id"] === $id_lista) {
-                $nombre_lista = (string)$lista["nombre"];
-                break;
-            }
-        }
+        $config = $this->obtener_configuracion_balanza_modular();
+        $plu_digitos = max(1, min(8, (int)($config["plu_digitos"] ?? 5)));
+        $nombre_lista = $this->nombre_lista($id_lista);
         if ($nombre_lista === "") {
             flash_error("Selecciona una lista de precios cargada.");
             redirigir("index.php?c=exportaciones&a=index");
             return;
         }
 
+        global $container;
+        $listarProductosParaExportar = $container->get(\Ventas\ListasPrecios\Application\ListarProductosParaExportar::class);
         $rows = [];
         $filas = "";
-        foreach (ListaPrecio::productos_para_exportar($id_lista) as $producto) {
+        foreach ($listarProductosParaExportar->ejecutar($id_lista) as $producto) {
             $codigo = preg_replace('/\D+/', '', (string)($producto["cod_barras"] ?? "")) ?? "";
             $precio = (float)($producto["precio_lista"] ?? 0);
             if ($codigo === "" || $precio <= 0)
@@ -171,7 +255,8 @@ class ControladorExportaciones {
     }
 
     private function exportar_cambios_precios(string $desde, string $hasta, int $id_lista, string $formato): void {
-        $rows = ListaPrecio::historial_precios($desde, $hasta, $id_lista);
+        global $container;
+        $rows = $container->get(\Ventas\ListasPrecios\Application\ObtenerHistorialPrecios::class)->ejecutar($desde, $hasta, $id_lista);
         $nombre_lista = $id_lista > 0 ? $this->nombre_lista($id_lista) : "";
         $filas = "";
         $csv = [];
@@ -247,6 +332,8 @@ class ControladorExportaciones {
     }
 
     private function importar_csv_articulos_completo(string $archivo, string $nombre_archivo = "", bool $importar_disponibles = true, bool $crear_productos = false): array {
+        global $container;
+        $guardarPrecioProductoOrigen = $container->get(\Ventas\ListasPrecios\Application\GuardarPrecioProductoOrigen::class);
         $res = [
             "productos_creados" => 0,
             "productos_actualizados" => 0,
@@ -261,8 +348,8 @@ class ControladorExportaciones {
         $pdo = obtener_pdo();
         if ($pdo === null)
             return $res;
-        ListaPrecio::asegurar_tablas();
-        Stock::asegurar_columnas_minmax();
+        $container->get(\Ventas\ListasPrecios\Application\InicializarEsquemaListasPrecios::class)->ejecutar();
+        $container->get(\Ventas\Stock\Application\InicializarEsquemaStock::class)->ejecutar();
 
         $filas = $this->leer_filas_importacion($archivo, $nombre_archivo);
         if (count($filas) === 0)
@@ -323,8 +410,10 @@ class ControladorExportaciones {
                     $precio_final = $this->primer_precio_importacion($row, $columnas);
                     if ($precio_final <= 0)
                         $precio_final = $costo;
-                    $id_stock = Stock::crear_retornar_id($nombre, $unidad, $cantidad, $costo, 1, 0, 0);
-                    $id_producto = Producto::crear_retornar_id($nombre, $codigo, $id_stock > 0 ? $id_stock : null, 1, 0, $precio_final, 1);
+                    $crearStockRetornandoId = $container->get(\Ventas\Stock\Application\CrearStockRetornandoId::class);
+                    $id_stock = $crearStockRetornandoId->ejecutar($nombre, $unidad, $cantidad, $costo, 1, 0, 0, "general", "ARS", max(0, $costo));
+                    $crearProductoRetornandoId = $container->get(\Ventas\Productos\Application\CrearProductoRetornandoId::class);
+                    $id_producto = $crearProductoRetornandoId->ejecutar($nombre, $codigo, $id_stock > 0 ? $id_stock : null, 1, 0, $precio_final, 1);
                     if ($id_producto <= 0) {
                         $res["productos_no_encontrados"][] = $codigo !== "" ? ($nombre . " [" . $codigo . "]") : $nombre;
                         $res["omitidos"]++;
@@ -360,7 +449,7 @@ class ControladorExportaciones {
                     $porcentaje = 0.0;
                     if ((int)$id_lista !== $id_lista_costo && $costo_importado > 0)
                         $porcentaje = (($precio / $costo_importado) - 1) * 100;
-                    if (ListaPrecio::guardar_precio_producto_origen($id_producto, $id_lista, $porcentaje, $precio, "importacion_excel")) {
+                    if ($guardarPrecioProductoOrigen->ejecutar($id_producto, $id_lista, $porcentaje, $precio, "importacion_excel")) {
                         $precios_cargados++;
                         $res["precios_cargados"]++;
                     }
@@ -507,7 +596,7 @@ class ControladorExportaciones {
 
     private function listas_importacion_por_nombre(): array {
         $res = [];
-        foreach (ListaPrecio::listar(true) as $lista) {
+        foreach ($this->listar_listas_precios_activas() as $lista) {
             $clave = $this->header_clave_importacion((string)($lista["nombre"] ?? ""));
             if ($clave !== "")
                 $res[$clave] = (int)$lista["id"];
@@ -622,7 +711,7 @@ class ControladorExportaciones {
     }
 
     private function id_lista_costo_importacion(): int {
-        foreach (ListaPrecio::listar(true) as $lista) {
+        foreach ($this->listar_listas_precios_activas() as $lista) {
             if ($this->header_clave_importacion((string)($lista["nombre"] ?? "")) === "costo")
                 return (int)$lista["id"];
         }
@@ -697,7 +786,8 @@ class ControladorExportaciones {
     }
 
     private function actualizar_stock_importacion(int $id_stock, string $nombre, string $unidad, float $cantidad, float $costo, int $activo, float $stock_minimo, float $stock_maximo): void {
-        Stock::asegurar_columnas_minmax();
+        global $container;
+        $container->get(\Ventas\Stock\Application\InicializarEsquemaStock::class)->ejecutar();
         $pdo = obtener_pdo();
         if ($pdo === null || $id_stock <= 0)
             return;
@@ -714,7 +804,8 @@ class ControladorExportaciones {
     }
 
     private function actualizar_costo_stock_producto_importacion(array $producto, float $costo): void {
-        Stock::asegurar_columnas_minmax();
+        global $container;
+        $container->get(\Ventas\Stock\Application\InicializarEsquemaStock::class)->ejecutar();
         $id_stock = (int)($producto["id_stock"] ?? 0);
         if ($id_stock <= 0 || $costo <= 0)
             return;
@@ -726,6 +817,9 @@ class ControladorExportaciones {
     }
 
     private function importar_csv_balanza(string $archivo, int $id_lista): array {
+        global $container;
+        $guardarPrecioProductoOrigen = $container->get(\Ventas\ListasPrecios\Application\GuardarPrecioProductoOrigen::class);
+        $obtenerPrecioProductoCargado = $container->get(\Ventas\ListasPrecios\Application\ObtenerPrecioProductoCargado::class);
         $res = ["creados" => 0, "actualizados" => 0, "sin_cambios" => 0, "omitidos" => 0];
         $fh = @fopen($archivo, "r");
         if ($fh === false)
@@ -754,19 +848,21 @@ class ControladorExportaciones {
             }
             $producto = $this->buscar_producto_por_plu($plu);
             if ($producto === null) {
-                $id_stock = Stock::crear_retornar_id($nombre, $unidad !== "" ? $unidad : "u", 0, 0, 1);
-                $id_producto = Producto::crear_retornar_id($nombre, $plu, $id_stock > 0 ? $id_stock : null, 1, 0, $precio, 1);
+                $crearStockRetornandoId = $container->get(\Ventas\Stock\Application\CrearStockRetornandoId::class);
+                $id_stock = $crearStockRetornandoId->ejecutar($nombre, $unidad !== "" ? $unidad : "u", 0, 0, 1, 0, 0, "general", "ARS", 0);
+                $crearProductoRetornandoId = $container->get(\Ventas\Productos\Application\CrearProductoRetornandoId::class);
+                $id_producto = $crearProductoRetornandoId->ejecutar($nombre, $plu, $id_stock > 0 ? $id_stock : null, 1, 0, $precio, 1);
                 if ($id_producto <= 0) {
                     $res["omitidos"]++;
                     continue;
                 }
-                ListaPrecio::guardar_precio_producto_origen($id_producto, $id_lista, 0, $precio, "importacion_balanza");
+                $guardarPrecioProductoOrigen->ejecutar($id_producto, $id_lista, 0, $precio, "importacion_balanza");
                 $res["creados"]++;
                 continue;
             }
             $id_producto = (int)$producto["id"];
             $actual_nombre = trim((string)($producto["nombre"] ?? ""));
-            $precio_actual_info = ListaPrecio::precio_producto_cargado($id_producto, $id_lista);
+            $precio_actual_info = $obtenerPrecioProductoCargado->ejecutar($id_producto, $id_lista);
             $precio_actual = $precio_actual_info !== null ? (float)$precio_actual_info["precio"] : 0.0;
             $unidad_actual = trim((string)($producto["stock_unidad"] ?? ""));
             $cambio = abs($precio_actual - $precio) >= 0.01 || $actual_nombre !== $nombre || ($unidad !== "" && $unidad_actual !== $unidad);
@@ -774,7 +870,7 @@ class ControladorExportaciones {
                 $this->actualizar_nombre_producto($id_producto, $nombre);
             if ($unidad !== "")
                 $this->actualizar_unidad_stock_producto($id_producto, $unidad);
-            ListaPrecio::guardar_precio_producto_origen($id_producto, $id_lista, 0, $precio, "importacion_balanza");
+            $guardarPrecioProductoOrigen->ejecutar($id_producto, $id_lista, 0, $precio, "importacion_balanza");
             $cambio ? $res["actualizados"]++ : $res["sin_cambios"]++;
         }
         fclose($fh);
@@ -857,7 +953,7 @@ class ControladorExportaciones {
     }
 
     private function exportar_resumen(string $desde, string $hasta, string $formato, string $subtitulo): void {
-        $resumen = Venta::obtener_resumen_periodo($desde, $hasta);
+        $resumen = $this->obtener_resumen_ventas_periodo_modular($desde, $hasta);
         $filas = "<tr><td>Ventas realizadas</td><td class='num'>" . (int)$resumen["cantidad_ventas"] . "</td></tr>";
         $filas .= "<tr><td>Total vendido</td><td class='num'>" . htmlspecialchars(moneda_para_mostrar($resumen["total_vendido"] ?? 0)) . "</td></tr>";
         $filas .= "<tr><td>Ganancia estimada</td><td class='num'>" . htmlspecialchars(moneda_para_mostrar($resumen["ganancia"] ?? 0)) . "</td></tr>";
@@ -937,7 +1033,7 @@ class ControladorExportaciones {
         $pdo = obtener_pdo();
         if ($pdo !== null) {
             try {
-                Venta::asegurar_columnas_detalle();
+                $this->inicializar_esquema_ventas_modular();
                 $params = [];
                 $where = $this->where_periodo($desde, $hasta, $params, "v.fecha");
                 $sql = "SELECT DATE(v.fecha) AS fecha, COUNT(*) AS ventas, COALESCE(SUM(v.total), 0) AS total FROM ventas v";
@@ -1253,7 +1349,7 @@ class ControladorExportaciones {
     }
 
     private function nombre_lista(int $id_lista): string {
-        foreach (ListaPrecio::listar(true) as $lista) {
+        foreach ($this->listar_listas_precios_activas() as $lista) {
             if ((int)$lista["id"] === $id_lista)
                 return (string)$lista["nombre"];
         }

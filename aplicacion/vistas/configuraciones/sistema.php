@@ -364,7 +364,7 @@ foreach ($modulos_navbar as $clave_nav => $modulo_nav) {
       <div class="row g-3">
         <div class="col-md-8">
           <label class="form-label">Acceso a Reparaciones Python</label>
-          <input class="form-control" name="url_reparaciones" value="<?= cfg_valor($config, "url_reparaciones") ?>" placeholder="index.php?c=reparaciones&a=index">
+          <input class="form-control" name="url_reparaciones" value="<?= cfg_valor($config, "url_reparaciones") ?>" placeholder="/Sistema-de-ventas/laravel/public/reparaciones">
         </div>
         <div class="col-md-2">
           <label class="form-label">Mostrar acceso</label>

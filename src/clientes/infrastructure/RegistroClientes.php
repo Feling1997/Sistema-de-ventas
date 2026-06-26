@@ -9,11 +9,13 @@ use Ventas\Clientes\Application\ActualizarCliente;
 use Ventas\Clientes\Application\BuscarClientePorId;
 use Ventas\Clientes\Application\CrearCliente;
 use Ventas\Clientes\Application\EliminarCliente;
+use Ventas\Clientes\Application\InicializarEsquemaClientesFiscales;
 use Ventas\Clientes\Application\ListarClientes;
+use Ventas\Clientes\Application\ValidarClienteFacturaA;
 use Ventas\Clientes\Domain\Repositorios\ClienteRepository;
-use Ventas\Infraestructura\Configuracion\DatabaseConfig;
-use Ventas\Infraestructura\Contenedor\Container;
-use Ventas\Infraestructura\Persistencia\MySQL\PdoConnectionFactory;
+use Ventas\Core\Infrastructure\Config\DatabaseConfig;
+use Ventas\Core\Infrastructure\Container\Container;
+use Ventas\Core\Infrastructure\Persistence\Mysql\PdoConnectionFactory;
 
 final class RegistroClientes
 {
@@ -42,5 +44,9 @@ final class RegistroClientes
         $container->bind(ActualizarCliente::class, fn (Container $container): ActualizarCliente => new ActualizarCliente($container->get(ClienteRepository::class)));
 
         $container->bind(EliminarCliente::class, fn (Container $container): EliminarCliente => new EliminarCliente($container->get(ClienteRepository::class)));
+
+        $container->bind(ValidarClienteFacturaA::class, fn (): ValidarClienteFacturaA => new ValidarClienteFacturaA());
+
+        $container->bind(InicializarEsquemaClientesFiscales::class, fn (Container $container): InicializarEsquemaClientesFiscales => new InicializarEsquemaClientesFiscales($container->get(ClienteRepository::class)));
     }
 }

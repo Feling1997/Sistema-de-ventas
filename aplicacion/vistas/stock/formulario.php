@@ -102,7 +102,7 @@ $precio_costo_visible = number_format(parsear_numero_form($precio_costo, 0), 2, 
         <div class="col-md-3">
           <label class="form-label">Costo en <?= $moneda_costo === "USD" ? "dolares" : "pesos" ?></label>
           <input type="text" inputmode="decimal" class="form-control form-control-lg money-input" name="precio_costo" value="<?= htmlspecialchars($precio_costo_visible) ?>" placeholder="1500,00">
-          <div class="form-text">Cotizacion actual: <?= htmlspecialchars(precio_para_mostrar(Stock::cotizacion_dolar())) ?> por USD.</div>
+          <div class="form-text">Cotizacion actual: <?= htmlspecialchars(precio_para_mostrar($cotizacion_dolar_stock ?? 1)) ?> por USD.</div>
         </div>
       </div>
       <div class="mt-4 mb-4">

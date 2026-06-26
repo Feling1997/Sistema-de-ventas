@@ -301,7 +301,7 @@ function configuraciones_defecto_db(): array {
         "backup_ultimo_estado" => "",
         "backup_ultimo_error" => "",
         "backup_auto_ultimo_dia" => "",
-        "url_reparaciones" => "index.php?c=reparaciones&a=index",
+        "url_reparaciones" => "/Sistema-de-ventas/laravel/public/reparaciones",
         "mostrar_reparaciones" => "1",
         "atajo_reparaciones" => "F9",
         "configuracion_separada" => "1",
@@ -656,7 +656,7 @@ tbody tr:nth-child(even){background:#fafcfd}.num{text-align:right}.center{text-a
 function config_sistema_simple(): array {
     $archivo = __DIR__ . "/../almacenamiento/configuracion_sistema.json";
     $defecto = [
-        "url_reparaciones" => "index.php?c=reparaciones&a=index",
+        "url_reparaciones" => "/Sistema-de-ventas/laravel/public/reparaciones",
         "mostrar_reparaciones" => "1",
         "atajo_reparaciones" => "F9",
         "color_acento" => "#1f6f8b",
@@ -704,9 +704,11 @@ function config_sistema_simple(): array {
 function normalizar_url_reparaciones(string $url): string {
     $url = trim($url);
     if ($url === "")
-        return "index.php?c=reparaciones&a=index";
+        return "/Sistema-de-ventas/laravel/public/reparaciones";
     if (preg_match('/^[a-zA-Z0-9_ -]+$/', $url))
-        return "index.php?c=reparaciones&a=index";
+        return "/Sistema-de-ventas/laravel/public/reparaciones";
+    if (str_contains($url, "index.php?c=reparaciones"))
+        return "/Sistema-de-ventas/laravel/public/reparaciones";
     return $url;
 }
 

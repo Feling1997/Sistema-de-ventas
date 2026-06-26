@@ -24,4 +24,6 @@ interface ClienteRepository
     public function eliminar(int $id): void;
 
     public function tieneVentasAsociadas(int $id): bool;
+
+    public function inicializarEsquemaFiscal(): void;
 }

@@ -42,7 +42,7 @@
         </thead>
         <tbody>
           <?php foreach ($listas as $lista): ?>
-            <?php $es_base = ListaPrecio::es_lista_costo($lista); ?>
+            <?php $es_base = !empty($lista["es_lista_costo"]); ?>
             <tr>
               <td><?= (int)$lista["id"] ?></td>
               <td><?= htmlspecialchars($lista["nombre"] ?? "") ?></td>

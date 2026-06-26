@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Ventas\Usuarios\Infrastructure;
 
 use PDO;
-use Ventas\Infraestructura\Configuracion\DatabaseConfig;
-use Ventas\Infraestructura\Contenedor\Container;
-use Ventas\Infraestructura\Persistencia\MySQL\PdoConnectionFactory;
+use Ventas\Core\Infrastructure\Config\DatabaseConfig;
+use Ventas\Core\Infrastructure\Container\Container;
+use Ventas\Core\Infrastructure\Persistence\Mysql\PdoConnectionFactory;
 use Ventas\Usuarios\Application\ActualizarUsuario;
 use Ventas\Usuarios\Application\BuscarUsuarioPorId;
 use Ventas\Usuarios\Application\CrearUsuario;

@@ -12,8 +12,10 @@ final class ListarListasPrecios
     {
     }
 
-    public function ejecutar(): array
+    public function ejecutar(bool $soloActivas = true, string $ordenSql = 'nombre ASC'): array
     {
-        return $this->listaPrecioRepository->listar();
+        $resultado = $this->listaPrecioRepository->listar($soloActivas, $ordenSql);
+
+        return $resultado;
     }
 }

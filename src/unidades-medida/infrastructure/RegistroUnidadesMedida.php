@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Ventas\UnidadesMedida\Infrastructure;
 
 use PDO;
-use Ventas\Infraestructura\Configuracion\DatabaseConfig;
-use Ventas\Infraestructura\Contenedor\Container;
-use Ventas\Infraestructura\Persistencia\MySQL\PdoConnectionFactory;
+use Ventas\Core\Infrastructure\Config\DatabaseConfig;
+use Ventas\Core\Infrastructure\Container\Container;
+use Ventas\Core\Infrastructure\Persistence\Mysql\PdoConnectionFactory;
+use Ventas\UnidadesMedida\Application\AsegurarUnidadMedidaDesdeFormulario;
+use Ventas\UnidadesMedida\Application\BuscarUnidadMedidaPorAbreviatura;
 use Ventas\UnidadesMedida\Application\BuscarUnidadMedidaPorId;
+use Ventas\UnidadesMedida\Application\CrearUnidadMedidaSinDuplicar;
 use Ventas\UnidadesMedida\Application\ListarUnidadesMedida;
 use Ventas\UnidadesMedida\Domain\Repositorios\UnidadMedidaRepository;
 
@@ -33,5 +36,11 @@ final class RegistroUnidadesMedida
         $container->bind(ListarUnidadesMedida::class, fn (Container $container): ListarUnidadesMedida => new ListarUnidadesMedida($container->get(UnidadMedidaRepository::class)));
 
         $container->bind(BuscarUnidadMedidaPorId::class, fn (Container $container): BuscarUnidadMedidaPorId => new BuscarUnidadMedidaPorId($container->get(UnidadMedidaRepository::class)));
+
+        $container->bind(BuscarUnidadMedidaPorAbreviatura::class, fn (Container $container): BuscarUnidadMedidaPorAbreviatura => new BuscarUnidadMedidaPorAbreviatura($container->get(UnidadMedidaRepository::class)));
+
+        $container->bind(CrearUnidadMedidaSinDuplicar::class, fn (Container $container): CrearUnidadMedidaSinDuplicar => new CrearUnidadMedidaSinDuplicar($container->get(UnidadMedidaRepository::class)));
+
+        $container->bind(AsegurarUnidadMedidaDesdeFormulario::class, fn (Container $container): AsegurarUnidadMedidaDesdeFormulario => new AsegurarUnidadMedidaDesdeFormulario($container->get(UnidadMedidaRepository::class)));
     }
 }

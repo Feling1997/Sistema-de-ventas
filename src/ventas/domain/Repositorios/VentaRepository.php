@@ -50,4 +50,6 @@ interface VentaRepository
     ): bool;
 
     public function aplicarSaldoFavor(int $idCliente, int $idVenta, float $monto): bool;
+
+    public function inicializarEsquema(): bool;
 }

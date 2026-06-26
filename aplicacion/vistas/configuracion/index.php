@@ -48,13 +48,10 @@ foreach ($modulos_navbar as $clave_nav => $modulo_nav) {
         $modulos_ordenados[$clave_nav] = $modulo_nav;
 }
 $logo_ticket_rel = trim((string)($config["logo_ticket"] ?? ""));
-$logo_ticket_preview = "";
-if ($logo_ticket_rel !== "") {
-    $formato_logo_preview = (string)($config["formato_impresion_ticket"] ?? "80");
-    $logo_ticket_preview = function_exists("procesar_logo_ticket_termico")
-        ? procesar_logo_ticket_termico_hd($logo_ticket_rel, $formato_logo_preview === "58" ? 384 : 576, true)
-        : $logo_ticket_rel;
-    $logo_preview_abs = function_exists("resolver_ruta_proyecto") ? resolver_ruta_proyecto($logo_ticket_preview) : "";
+$logo_ticket_preview = (string)($logo_ticket_preview ?? "");
+if ($logo_ticket_rel !== "" && $logo_ticket_preview === "") {
+    $logo_ticket_preview = $logo_ticket_rel;
+    $logo_preview_abs = (string)($logo_preview_abs ?? "");
     if ($logo_preview_abs !== "" && is_file($logo_preview_abs))
         $logo_ticket_preview .= "?v=" . (string)filemtime($logo_preview_abs);
 }
@@ -498,7 +495,7 @@ color:#15799b;
       notificaciones: `<div class="preview-title-row"><strong>Notificaciones reales</strong><em>${cfgChecked('notificaciones_toasts','Toast','Sin toast')}</em></div><div class="preview-card"><div class="preview-list"><div><i class="bi bi-bell-fill"></i><span>Alertas generales</span><strong>${cfgChecked('notificaciones_alertas','ON','OFF')}</strong></div><div><i class="bi bi-box-fill"></i><span>Stock bajo</span><strong>${cfgChecked('notificaciones_stock_bajo','ON','OFF')}</strong></div><div><i class="bi bi-cart-check-fill"></i><span>Ventas completadas</span><strong>${cfgChecked('notificaciones_ventas','ON','OFF')}</strong></div><div><i class="bi bi-volume-up-fill"></i><span>Sonidos</span><strong>${cfgChecked('notificaciones_sonidos','ON','OFF')}</strong></div></div></div>`,
       backup: `<div class="preview-title-row"><strong>Backup real</strong><em>${esc(cfgValue('backup_frecuencia','diario'))}</em></div><div class="preview-card"><h6>${backupBucket}</h6><div class="preview-progress"><span></span></div><div class="preview-list mt-2"><div><i class="bi bi-cloud-arrow-up-fill"></i><span>Backblaze B2</span><strong>${cfgChecked('backup_b2_habilitado','Activo','Manual')}</strong></div><div><i class="bi bi-folder2-open"></i><span>Carpeta</span><strong>${backupFolder}</strong></div><div><i class="bi bi-clock-history"></i><span>Automatico</span><strong>${cfgChecked('backup_automatico','ON','OFF')}</strong></div></div></div>`,
       seguridad: `<div class="preview-title-row"><strong>Seguridad real</strong><em>${authMode}</em></div><div class="preview-card"><div class="preview-list"><div><i class="bi bi-person-lock"></i><span>Tiempo sesion</span><strong>${esc(cfgValue('seguridad_tiempo_sesion','120'))} min</strong></div><div><i class="bi bi-shield-lock-fill"></i><span>Bloqueos</span><strong>${cfgChecked('seguridad_bloqueos','ON','OFF')}</strong></div><div><i class="bi bi-file-earmark-text"></i><span>Logs</span><strong>${cfgChecked('seguridad_logs','ON','OFF')}</strong></div><div><i class="bi bi-hdd-network"></i><span>IPs</span><strong>${esc(cfgValue('seguridad_ips_permitidas','Todas'))}</strong></div></div></div>`,
-      sistema: `<div class="preview-title-row"><strong>Sistema real</strong><em>Avanzado</em></div><div class="preview-card"><div class="preview-list"><div><i class="bi bi-tools"></i><span>Reparaciones</span><strong>${cfgChecked('mostrar_reparaciones','Visible','Oculto')}</strong></div><div><i class="bi bi-keyboard"></i><span>Atajo</span><strong>${esc(cfgValue('atajo_reparaciones','F9'))}</strong></div><div><i class="bi bi-link-45deg"></i><span>URL</span><strong>${esc(cfgValue('url_reparaciones','index.php?c=reparaciones&a=index'))}</strong></div></div></div>`
+      sistema: `<div class="preview-title-row"><strong>Sistema real</strong><em>Avanzado</em></div><div class="preview-card"><div class="preview-list"><div><i class="bi bi-tools"></i><span>Reparaciones</span><strong>${cfgChecked('mostrar_reparaciones','Visible','Oculto')}</strong></div><div><i class="bi bi-keyboard"></i><span>Atajo</span><strong>${esc(cfgValue('atajo_reparaciones','F9'))}</strong></div><div><i class="bi bi-link-45deg"></i><span>URL</span><strong>${esc(cfgValue('url_reparaciones','/Sistema-de-ventas/laravel/public/reparaciones'))}</strong></div></div></div>`
     };
     previewContent.innerHTML = views[name] || views.inicio;
   }

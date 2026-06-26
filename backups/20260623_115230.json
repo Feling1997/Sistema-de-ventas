@@ -1,0 +1,28 @@
+{
+    "fecha": "20260623_115230",
+    "version": "33N",
+    "directorio": "C:\\laragon\\www\\Sistema-de-ventas\\laravel\\..\/backups\\sistema_20260623_115230",
+    "bases": {
+        "sistema_core": {
+            "estado": "OK",
+            "mensaje": "respaldo generado",
+            "archivo": "C:\\laragon\\www\\Sistema-de-ventas\\laravel\\..\/backups\\sistema_20260623_115230\\sistema_core.sql",
+            "tablas": 2,
+            "filas": 5
+        },
+        "sistema_ventas": {
+            "estado": "OK",
+            "mensaje": "respaldo generado",
+            "archivo": "C:\\laragon\\www\\Sistema-de-ventas\\laravel\\..\/backups\\sistema_20260623_115230\\sistema_ventas.sql",
+            "tablas": 21,
+            "filas": 148
+        },
+        "sistema_reparaciones": {
+            "estado": "OK",
+            "mensaje": "respaldo generado",
+            "archivo": "C:\\laragon\\www\\Sistema-de-ventas\\laravel\\..\/backups\\sistema_20260623_115230\\sistema_reparaciones.sql",
+            "tablas": 8,
+            "filas": 59
+        }
+    }
+}

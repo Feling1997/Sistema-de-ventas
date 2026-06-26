@@ -1,14 +1,4 @@
 <?php
-require_once __DIR__ . "/../modelos/Venta.php";
-require_once __DIR__ . "/../modelos/FacturaFiscal.php";
-require_once __DIR__ . "/../modelos/Cliente.php";
-require_once __DIR__ . "/../modelos/Presupuesto.php";
-require_once __DIR__ . "/../modelos/Configuracion.php";
-require_once __DIR__ . "/../modelos/ConfiguracionSistema.php";
-require_once __DIR__ . "/../modelos/ListaPrecio.php";
-require_once __DIR__ . "/../modelos/Producto.php";
-require_once __DIR__ . "/../modelos/UnidadMedida.php";
-require_once __DIR__ . "/../modelos/CuentaCorriente.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
@@ -44,6 +34,9 @@ class ControladorVentas {
     }
 
     private function obtener_form_venta(): array {
+        global $container;
+        $obtenerListaPrecioPredeterminada = $container->get(\Ventas\ListasPrecios\Application\ObtenerListaPrecioPredeterminada::class);
+        $id_lista_precio_predeterminada = $obtenerListaPrecioPredeterminada->ejecutar();
         $datos = [
             "id_cliente" => 1,
             "buscar_cliente" => "",
@@ -53,7 +46,7 @@ class ControladorVentas {
             "precio_unit" => "",
             "tipo_comprobante" => 98,
             "buscar_producto" => "",
-            "id_lista_precio" => ListaPrecio::id_predeterminada()
+            "id_lista_precio" => $id_lista_precio_predeterminada
         ];
         $flash = obtener_form_data("ventas_form");
         if ($flash !== [])
@@ -62,6 +55,9 @@ class ControladorVentas {
     }
 
     private function guardar_form_venta(array $datos): void {
+        global $container;
+        $obtenerListaPrecioPredeterminada = $container->get(\Ventas\ListasPrecios\Application\ObtenerListaPrecioPredeterminada::class);
+        $id_lista_precio_predeterminada = $obtenerListaPrecioPredeterminada->ejecutar();
         flash_form_data("ventas_form", [
             "id_cliente" => (int)($datos["id_cliente"] ?? 1),
             "buscar_cliente" => (string)($datos["buscar_cliente"] ?? ""),
@@ -71,7 +67,7 @@ class ControladorVentas {
             "precio_unit" => (string)($datos["precio_unit"] ?? ""),
             "tipo_comprobante" => (int)($datos["tipo_comprobante"] ?? 98),
             "buscar_producto" => (string)($datos["buscar_producto"] ?? ""),
-            "id_lista_precio" => (int)($datos["id_lista_precio"] ?? ListaPrecio::id_predeterminada())
+            "id_lista_precio" => (int)($datos["id_lista_precio"] ?? $id_lista_precio_predeterminada)
         ]);
     }
 
@@ -159,12 +155,17 @@ class ControladorVentas {
     public function nueva(): void {
         if ($this->permiso()) {
             global $container;
+            if (!$container->has(\Ventas\Configuracion\Application\ObtenerConfiguracionBalanza::class)) {
+                \Ventas\Configuracion\Infrastructure\RegistroConfiguracion::registrar($container);
+            }
             $listarClientesVenta = $container->get(\Ventas\Aplicacion\Ventas\NuevaVenta\ListarClientesVenta::class);
             $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
             $obtenerCarritoVenta = $container->get(\Ventas\Aplicacion\Ventas\NuevaVenta\ObtenerCarritoVenta::class);
             $calcularTotalCarritoVenta = $container->get(\Ventas\Aplicacion\Ventas\NuevaVenta\CalcularTotalCarritoVenta::class);
             $obtenerFormularioVenta = $container->get(\Ventas\Aplicacion\Ventas\NuevaVenta\ObtenerFormularioVenta::class);
             $obtenerSaldosFavorClientes = $container->get(\Ventas\Aplicacion\Ventas\NuevaVenta\ObtenerSaldosFavorClientes::class);
+            $obtenerConfiguracionBalanza = $container->get(\Ventas\Configuracion\Application\ObtenerConfiguracionBalanza::class);
+            $obtenerTiposComprobanteVenta = $container->get(\Ventas\Ventas\Application\ObtenerTiposComprobanteVenta::class);
             $clientes = $listarClientesVenta->ejecutar();
             $productos = [];
             $listas_precios = [];
@@ -177,9 +178,29 @@ class ControladorVentas {
                 ];
             }
             $carrito = $obtenerCarritoVenta->ejecutar();
+            $carrito_vista = [];
+            foreach ($carrito as $indice => $item) {
+                $cantidad = max(0.0, (float)($item["cantidad"] ?? 0));
+                $precio_unit = max(0.0, (float)($item["precio_unit"] ?? 0));
+                $descuento = max(0.0, min(100.0, (float)($item["descuento"] ?? 0)));
+                $bruto = $cantidad * $precio_unit;
+                $subtotal = max(0.0, $bruto - (($bruto * $descuento) / 100));
+                $item["subtotal"] = $subtotal;
+                $carrito_vista[$indice] = $item;
+            }
             $total = $calcularTotalCarritoVenta->ejecutar($carrito);
             $form_venta = $obtenerFormularioVenta->ejecutar();
             $saldos_favor_clientes = $obtenerSaldosFavorClientes->ejecutar();
+            $configuracion_balanza_modular = $obtenerConfiguracionBalanza->ejecutar();
+            $configuracion_balanza = [
+                "modo" => (string)($configuracion_balanza_modular["modo"] ?? "auto"),
+                "pluDigitos" => max(1, min(8, (int)($configuracion_balanza_modular["plu_digitos"] ?? 5))),
+                "valorDecimales" => max(0, min(4, (int)($configuracion_balanza_modular["valor_decimales"] ?? 3))),
+                "importeDecimales" => max(0, min(4, (int)($configuracion_balanza_modular["importe_decimales"] ?? 2))),
+                "prefijosCantidad" => array_values(array_filter(array_map("trim", $configuracion_balanza_modular["prefijos_cantidad"] ?? ["20", "21", "23", "25", "27", "29"]))),
+                "prefijosImporte" => array_values(array_filter(array_map("trim", $configuracion_balanza_modular["prefijos_importe"] ?? ["22", "24", "26", "28"]))),
+            ];
+            $tipos_comprobante = $obtenerTiposComprobanteVenta->ejecutar();
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/ventas/nueva.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -228,7 +249,7 @@ class ControladorVentas {
                   <div class="text-muted small">Panel principal de acceso rapido a los modulos de ventas.</div>
                 </div>
                 <div class="d-flex gap-2 flex-wrap">
-                  <a class="btn btn-outline-secondary" href="index.php?c=reparaciones&a=index">Ir a Reparaciones</a>
+                  <a class="btn btn-outline-secondary" href="/Sistema-de-ventas/laravel/public/reparaciones">Ir a Reparaciones</a>
                 </div>
               </div>
               <div class="desktop-grid">

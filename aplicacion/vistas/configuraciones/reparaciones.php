@@ -128,7 +128,7 @@ $atajo_reparaciones = cfg_valor($config, "atajo_reparaciones");
             class="form-control" 
             name="url_reparaciones" 
             value="<?= cfg_valor($config, "url_reparaciones") ?>"
-            placeholder="Ej: index.php?c=reparaciones&a=index"
+            placeholder="Ej: /Sistema-de-ventas/laravel/public/reparaciones"
           >
           <small class="text-muted d-block mt-2">URL a la que dirigirse al acceder a reparaciones.</small>
         </div>

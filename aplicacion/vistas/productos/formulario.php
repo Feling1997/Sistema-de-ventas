@@ -52,9 +52,8 @@ $unidad_option_label = static function(array $u) use ($unidad_abbr_label): strin
 $precio_costo_visible = number_format(parsear_numero_form($stock_precio_costo, 0), 2, ",", "");
 $stock_seleccionado = null;
 foreach ($stocks as $stock_item) {
-    if ($id_stock !== null && (int)$stock_item["id"] === $id_stock) {
+    if ($stock_seleccionado === null && $id_stock !== null && (int)$stock_item["id"] === $id_stock) {
         $stock_seleccionado = $stock_item;
-        break;
     }
 }
 $stock_info_cantidad = $stock_seleccionado !== null ? stock_para_mostrar($stock_seleccionado["cantidad"] ?? 0, 4) : "0";
@@ -163,7 +162,7 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
         <div class="col-sm-6 col-lg-2">
           <label class="form-label">Costo origen</label>
           <input type="text" inputmode="decimal" class="form-control form-control-lg money-input" name="precio_costo" value="<?= htmlspecialchars($precio_costo_visible) ?>" placeholder="1500,00">
-          <div class="form-text">USD actual: <?= htmlspecialchars(precio_para_mostrar(Stock::cotizacion_dolar())) ?></div>
+          <div class="form-text">USD actual: <?= htmlspecialchars(precio_para_mostrar($cotizacion_dolar_stock ?? 1)) ?></div>
         </div>
       </div>
 
@@ -244,10 +243,11 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
             <?php foreach ($listas_precios as $lista): ?>
               <?php
                 $id_lista = (int)$lista["id"];
-                $es_lista_costo = ListaPrecio::es_lista_costo($lista);
-                if ($es_lista_costo)
-                  continue;
-                $es_lista_publico = ListaPrecio::es_lista_publico($lista);
+                $es_lista_costo = !empty($lista["es_lista_costo"]);
+                $es_lista_publico = !empty($lista["es_lista_publico"]);
+              ?>
+              <?php if (!$es_lista_costo): ?>
+              <?php
                 $precio_lista_valor = (float)($precios_producto[$id_lista]["precio"] ?? 0);
                 if ($precio_lista_valor <= 0 && $es_lista_costo)
                   $precio_lista_valor = (float)($p["stock_precio_costo"] ?? 0);
@@ -269,6 +269,7 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
                   </div>
                 </div>
               </div>
+              <?php endif; ?>
             <?php endforeach; ?>
           </div>
         </div>
@@ -316,7 +317,7 @@ $stock_info_nombre = $stock_seleccionado !== null ? ("#" . (int)$stock_seleccion
   const precioManual = document.querySelector('input[name="precio_final_manual"]');
   const precioCosto = document.querySelector('input[name="precio_costo"]');
   const monedaCosto = document.querySelector('select[name="moneda_costo"]');
-  const cotizacionDolar = <?= json_encode(Stock::cotizacion_dolar()) ?>;
+  const cotizacionDolar = <?= json_encode($cotizacion_dolar_stock ?? 1) ?>;
   const preview = document.getElementById('precioFinalPreview');
   const stockInfoCantidad = document.getElementById('stockInfoCantidad');
   const stockInfoCosto = document.getElementById('stockInfoCosto');

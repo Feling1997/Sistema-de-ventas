@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace Ventas\Ventas\Infrastructure;
 
 use PDO;
+use Ventas\CuentasCorrientes\Domain\Repositorios\AplicarSaldoFavorRepository;
+use Ventas\CuentasCorrientes\Domain\Repositorios\CrearCuentaCorrienteVentaRepository;
+use Ventas\CuentasCorrientes\Domain\Repositorios\SaldoFavorClienteRepository as CuentaCorrienteSaldoFavorClienteRepository;
+use Ventas\CuentasCorrientes\Infrastructure\MySQLAplicarSaldoFavorRepository;
+use Ventas\CuentasCorrientes\Infrastructure\MySQLCuentaCorrienteVentaRepository;
+use Ventas\CuentasCorrientes\Infrastructure\MySQLSaldoFavorClienteRepository;
 use Ventas\Ventas\Domain\Entidades\DetalleVenta;
 use Ventas\Ventas\Domain\Entidades\Venta;
 use Ventas\Ventas\Domain\Repositorios\VentaRepository;
@@ -12,8 +18,14 @@ use Ventas\Ventas\Domain\Repositorios\VentaRepository;
 final class MySQLVentaRepository implements VentaRepository
 {
     public function __construct(
-        private readonly PDO $pdo
+        private readonly PDO $pdo,
+        private ?CuentaCorrienteSaldoFavorClienteRepository $saldoFavorClienteRepository = null,
+        private ?CrearCuentaCorrienteVentaRepository $crearCuentaCorrienteVentaRepository = null,
+        private ?AplicarSaldoFavorRepository $aplicarSaldoFavorRepository = null
     ) {
+        $this->saldoFavorClienteRepository ??= new MySQLSaldoFavorClienteRepository($this->pdo);
+        $this->crearCuentaCorrienteVentaRepository ??= new MySQLCuentaCorrienteVentaRepository($this->pdo);
+        $this->aplicarSaldoFavorRepository ??= new MySQLAplicarSaldoFavorRepository($this->pdo, $this->saldoFavorClienteRepository);
     }
 
     public function listar(): array
@@ -354,14 +366,7 @@ final class MySQLVentaRepository implements VentaRepository
         $saldo = 0.0;
 
         if ($idCliente > 0) {
-            $statement = $this->pdo->prepare(
-                "SELECT COALESCE(SUM(CASE WHEN tipo = 'ANTICIPO' THEN monto WHEN tipo = 'APLICACION' THEN -monto ELSE 0 END), 0) AS saldo
-                 FROM cuentas_corrientes_recibos
-                 WHERE id_cliente = ?"
-            );
-            $statement->execute([$idCliente]);
-            $fila = $statement->fetch();
-            $saldo = max(0.0, round((float) ($fila['saldo'] ?? 0), 2));
+            $saldo = $this->saldoFavorClienteRepository->obtenerSaldoFavorCliente($idCliente);
         }
 
         return $saldo;
@@ -419,27 +424,10 @@ final class MySQLVentaRepository implements VentaRepository
 
         if ($idCliente > 0 && $total > 0 && $cuotas > 0) {
             try {
-                $this->pdo->beginTransaction();
-                $statementCuenta = $this->pdo->prepare('INSERT INTO cuentas_corrientes (id_cliente, id_venta, concepto, total, saldo) VALUES (?, ?, ?, ?, ?)');
-                $statementCuenta->execute([$idCliente, $idVenta, $concepto, $total, $total]);
-                $idCuenta = (int) $this->pdo->lastInsertId();
-                $monto = round($total / $cuotas, 2);
-                $fecha = new \DateTime($primerVencimiento);
-                $statementCuota = $this->pdo->prepare('INSERT INTO cuentas_corrientes_cuotas (id_cuenta, numero, vencimiento, monto) VALUES (?, ?, ?, ?)');
-
-                for ($i = 1; $i <= $cuotas; $i++) {
-                    $montoCuota = $i === $cuotas ? round($total - ($monto * ($cuotas - 1)), 2) : $monto;
-                    $vencimiento = trim((string) ($vencimientos[$i - 1] ?? ''));
-                    $statementCuota->execute([$idCuenta, $i, $vencimiento !== '' ? $vencimiento : $fecha->format('Y-m-d'), $montoCuota]);
-                    $fecha->modify('+1 month');
-                }
-
-                $this->pdo->commit();
+                $this->crearCuentaCorrienteVentaRepository->crearCuentaDesdeVenta((int) ($idVenta ?? 0), $idCliente, $concepto, $total, $cuotas, $primerVencimiento, $vencimientos);
                 $ok = true;
             } catch (\Throwable) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
+                $ok = false;
             }
         }
 
@@ -452,25 +440,32 @@ final class MySQLVentaRepository implements VentaRepository
 
         if ($idCliente > 0 && $idVenta > 0 && $monto > 0) {
             try {
-                $this->pdo->beginTransaction();
-                $saldo = $this->saldoFavorCliente($idCliente);
-
-                if ($saldo + 0.00001 >= $monto) {
-                    $observacion = 'Aplicado a venta #' . $idVenta;
-                    $statement = $this->pdo->prepare(
-                        "INSERT INTO cuentas_corrientes_recibos (id_cuenta, id_cliente, tipo, monto, forma_pago, observacion)
-                         VALUES (NULL, ?, 'APLICACION', ?, 'saldo_favor', ?)"
-                    );
-                    $ok = $statement->execute([$idCliente, $monto, $observacion]);
-                    $this->pdo->commit();
-                } elseif ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
+                $this->aplicarSaldoFavorRepository->aplicarSaldoFavorVenta($idCliente, $idVenta, $monto);
+                $ok = true;
             } catch (\Throwable) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
+                $ok = false;
             }
+        }
+
+        return $ok;
+    }
+
+    public function inicializarEsquema(): bool
+    {
+        $ok = false;
+
+        try {
+            $statement = $this->pdo->prepare('SHOW COLUMNS FROM detalle_venta LIKE ?');
+            $statement->execute(['costo_unit']);
+            $existe = (bool) $statement->fetch();
+
+            if (!$existe) {
+                $this->pdo->exec('ALTER TABLE detalle_venta ADD COLUMN costo_unit DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER precio_unit');
+            }
+
+            $ok = true;
+        } catch (\Throwable) {
+            $ok = false;
         }
 
         return $ok;

@@ -9,19 +9,19 @@ $precio_unit_actual = (string)($form_venta["precio_unit"] ?? "");
 $tipo_comprobante_actual = (int)($form_venta["tipo_comprobante"] ?? 98);
 $buscar_producto_actual = (string)($form_venta["buscar_producto"] ?? "");
 $listas_precios = $listas_precios ?? [];
-$config_sistema_ventas = ConfiguracionSistema::obtener();
-$balanza_config = [
-  "modo" => (string)($config_sistema_ventas["balanza_modo"] ?? "auto"),
-  "pluDigitos" => max(1, min(8, (int)($config_sistema_ventas["balanza_plu_digitos"] ?? 5))),
-  "valorDecimales" => max(0, min(4, (int)($config_sistema_ventas["balanza_valor_decimales"] ?? 3))),
-  "importeDecimales" => max(0, min(4, (int)($config_sistema_ventas["balanza_importe_decimales"] ?? 2))),
-  "prefijosCantidad" => array_values(array_filter(array_map("trim", explode(",", (string)($config_sistema_ventas["balanza_prefijos_cantidad"] ?? "20,21,23,25,27,29"))))),
-  "prefijosImporte" => array_values(array_filter(array_map("trim", explode(",", (string)($config_sistema_ventas["balanza_prefijos_importe"] ?? "22,24,26,28"))))),
+$carrito_vista = $carrito_vista ?? $carrito;
+$balanza_config = $configuracion_balanza ?? [
+  "modo" => "auto",
+  "pluDigitos" => 5,
+  "valorDecimales" => 3,
+  "importeDecimales" => 2,
+  "prefijosCantidad" => ["20", "21", "23", "25", "27", "29"],
+  "prefijosImporte" => ["22", "24", "26", "28"],
 ];
 $id_lista_precio_actual = (int)($form_venta["id_lista_precio"] ?? 0);
 if ($id_lista_precio_actual <= 0 && count($listas_precios) > 0)
   $id_lista_precio_actual = (int)$listas_precios[0]["id"];
-$tipos_comprobante = FacturaFiscal::tipos_comprobante();
+$tipos_comprobante = $tipos_comprobante ?? [];
 if (!isset($tipos_comprobante[$tipo_comprobante_actual]))
   $tipo_comprobante_actual = 98;
 $tipo_comprobante_info = $tipos_comprobante[$tipo_comprobante_actual];
@@ -223,8 +223,8 @@ foreach ($clientes as $cliente_item) {
               </tr>
             </thead>
             <tbody>
-            <?php foreach ($carrito as $idx => $it): ?>
-              <?php $sub = Venta::calcular_subtotal((float)$it["cantidad"], (float)$it["precio_unit"], (float)$it["descuento"]); ?>
+            <?php foreach ($carrito_vista as $idx => $it): ?>
+              <?php $sub = (float)($it["subtotal"] ?? 0); ?>
               <tr>
                 <td><?= htmlspecialchars($it["nombre"]) ?></td>
                 <td style="text-align:right;">

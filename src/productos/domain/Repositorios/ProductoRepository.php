@@ -42,5 +42,46 @@ interface ProductoRepository
 
     public function buscarPorCodigoOPluVenta(string $codigo): ?array;
 
+    public function buscarPorCodigoBarras(string $codigo): ?array;
+
+    public function stockExiste(int $idStock): bool;
+
+    public function obtenerPrecioCostoStock(int $idStock): ?float;
+
+    public function calcularPrecioFinal(float $precioCosto, float $factorConversion, float $ganancia): float;
+
+    public function crear(
+        string $nombre,
+        string $codBarras,
+        ?int $idStock,
+        float $factorConversion,
+        float $ganancia,
+        float $precioFinal,
+        int $activo
+    ): bool;
+
+    public function crearRetornandoId(
+        string $nombre,
+        string $codBarras,
+        ?int $idStock,
+        float $factorConversion,
+        float $ganancia,
+        float $precioFinal,
+        int $activo
+    ): int;
+
+    public function actualizar(
+        int $id,
+        string $nombre,
+        string $codBarras,
+        ?int $idStock,
+        float $factorConversion,
+        float $ganancia,
+        float $precioFinal,
+        int $activo
+    ): bool;
+
     public function eliminarNoVendidos(): int;
+
+    public function eliminarNoVendido(): int;
 }

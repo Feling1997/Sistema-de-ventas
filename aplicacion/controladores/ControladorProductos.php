@@ -1,8 +1,4 @@
 <?php
-require_once __DIR__ . "/../modelos/Producto.php";
-require_once __DIR__ . "/../modelos/Stock.php";
-require_once __DIR__ . "/../modelos/UnidadMedida.php";
-require_once __DIR__ . "/../modelos/ListaPrecio.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
@@ -10,9 +6,11 @@ require_once __DIR__ . "/../../configuraciones/base_datos.php";
 
 class ControladorProductos {
     private function generar_codigo_barras_interno(): string {
+        global $container;
+        $buscarProductoPorCodigoBarras = $container->get(\Ventas\Productos\Application\BuscarProductoPorCodigoBarras::class);
         do {
             $codigo = "P" . date("YmdHis") . random_int(10, 99);
-        } while (Producto::cod_barras_existe($codigo, 0));
+        } while ($buscarProductoPorCodigoBarras->ejecutar($codigo) !== null);
         return $codigo;
     }
 
@@ -50,12 +48,16 @@ class ControladorProductos {
     }
 
     private function listaPrecioDominioAArray(object $lista): array {
-        return [
+        $resultado = [
             "id" => $lista->id(),
             "nombre" => $lista->nombre(),
             "activo" => $lista->activo() ? 1 : 0,
             "creado_en" => $lista->creadoEn(),
         ];
+        $resultado["es_lista_costo"] = $this->es_lista_costo($resultado);
+        $resultado["es_lista_publico"] = $this->es_lista_publico($resultado);
+
+        return $resultado;
     }
 
     private function unidadMedidaDominioAArray(object $unidad): array {
@@ -70,11 +72,144 @@ class ControladorProductos {
     }
 
     private function listar_stock_para_select(): array {
-        return Stock::listar_generales_activos();
+        global $container;
+        $listarStockGeneral = $container->get(\Ventas\Stock\Application\ListarStockGeneral::class);
+        $stocks = [];
+        foreach ($listarStockGeneral->ejecutar() as $stock_dominio) {
+            $stocks[] = $this->stockDominioAArray($stock_dominio);
+        }
+        return $stocks;
+    }
+
+    private function buscar_stock_por_id_array(int $id): ?array {
+        global $container;
+        $buscarStockPorId = $container->get(\Ventas\Stock\Application\BuscarStockPorId::class);
+        $stock = $buscarStockPorId->ejecutar($id);
+        $resultado = null;
+        if ($stock !== null) {
+            $resultado = $this->stockDominioAArray($stock);
+        }
+        return $resultado;
+    }
+
+    private function contar_productos_asociados_stock(int $id_stock): int {
+        global $container;
+        $contarProductosAsociadosStock = $container->get(\Ventas\Stock\Application\ContarProductosAsociadosStock::class);
+        $resultado = $contarProductosAsociadosStock->ejecutar($id_stock);
+
+        return $resultado;
+    }
+
+    private function crear_stock_retornando_id(string $nombre, string $unidad, float $cantidad, float $precio_costo, int $activo, float $stock_minimo, float $stock_maximo, string $tipo_stock, string $moneda_costo): int {
+        global $container;
+        $costo_origen = max(0, $precio_costo);
+        $obtenerCostoEnPesosStock = $container->get(\Ventas\Stock\Application\ObtenerCostoEnPesosStock::class);
+        $precio_costo = $obtenerCostoEnPesosStock->ejecutar($costo_origen, $moneda_costo);
+        $crearStockRetornandoId = $container->get(\Ventas\Stock\Application\CrearStockRetornandoId::class);
+        $resultado = $crearStockRetornandoId->ejecutar($nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock, $moneda_costo, $costo_origen);
+
+        return $resultado;
+    }
+
+    private function actualizar_stock(int $id, string $nombre, string $unidad, float $cantidad, float $precio_costo, int $activo, float $stock_minimo, float $stock_maximo, string $tipo_stock, string $moneda_costo): bool {
+        global $container;
+        $costo_origen = max(0, $precio_costo);
+        $obtenerCostoEnPesosStock = $container->get(\Ventas\Stock\Application\ObtenerCostoEnPesosStock::class);
+        $precio_costo = $obtenerCostoEnPesosStock->ejecutar($costo_origen, $moneda_costo);
+        $actualizarStock = $container->get(\Ventas\Stock\Application\ActualizarStock::class);
+        $resultado = $actualizarStock->ejecutar($id, $nombre, $unidad, $cantidad, $precio_costo, $activo, $stock_minimo, $stock_maximo, $tipo_stock, $moneda_costo, $costo_origen);
+
+        return $resultado;
+    }
+
+    private function eliminar_stock(int $id): bool {
+        global $container;
+        $eliminarStock = $container->get(\Ventas\Stock\Application\EliminarStock::class);
+        $resultado = $eliminarStock->ejecutar($id);
+
+        return $resultado;
+    }
+
+    private function cotizacion_dolar_stock(): float {
+        global $container;
+        $obtenerCotizacionDolarStock = $container->get(\Ventas\Stock\Application\ObtenerCotizacionDolarStock::class);
+        $resultado = $obtenerCotizacionDolarStock->ejecutar();
+
+        return $resultado;
+    }
+
+    private function costo_stock_en_pesos(float $costo_origen, string $moneda): float {
+        $moneda = strtoupper(trim($moneda)) === "USD" ? "USD" : "ARS";
+        $resultado = max(0, $costo_origen);
+        if ($moneda === "USD") {
+            $resultado *= $this->cotizacion_dolar_stock();
+        }
+
+        return $resultado;
     }
 
     private function listar_unidades(): array {
-        return UnidadMedida::listar(true);
+        global $container;
+        $listarUnidadesMedida = $container->get(\Ventas\UnidadesMedida\Application\ListarUnidadesMedida::class);
+        $unidades = [];
+        foreach ($listarUnidadesMedida->ejecutar() as $unidad_dominio) {
+            $unidades[] = $this->unidadMedidaDominioAArray($unidad_dominio);
+        }
+        return $unidades;
+    }
+
+    private function listar_listas_precios_activas(): array {
+        global $container;
+
+        $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
+        $resultado = [];
+
+        foreach ($listarListasPrecios->ejecutar(true) as $lista_dominio) {
+            $resultado[] = $this->listaPrecioDominioAArray($lista_dominio);
+        }
+
+        return $resultado;
+    }
+
+    private function es_lista_costo(array $lista): bool {
+        global $container;
+
+        $esListaCosto = $container->get(\Ventas\ListasPrecios\Application\EsListaCosto::class);
+        $resultado = $esListaCosto->ejecutar($lista);
+
+        return $resultado;
+    }
+
+    private function es_lista_publico(array $lista): bool {
+        global $container;
+
+        $esListaPublico = $container->get(\Ventas\ListasPrecios\Application\EsListaPublico::class);
+        $resultado = $esListaPublico->ejecutar($lista);
+
+        return $resultado;
+    }
+
+    private function buscar_unidad_por_abreviatura(string $abreviatura): ?object {
+        global $container;
+        $buscarUnidadMedidaPorAbreviatura = $container->get(\Ventas\UnidadesMedida\Application\BuscarUnidadMedidaPorAbreviatura::class);
+        return $buscarUnidadMedidaPorAbreviatura->ejecutar($abreviatura);
+    }
+
+    private function crear_unidad_sin_duplicar(string $nombre, string $abreviatura, string $tipo, int $decimales, int $activo = 1): ?array {
+        global $container;
+        $crearUnidadMedidaSinDuplicar = $container->get(\Ventas\UnidadesMedida\Application\CrearUnidadMedidaSinDuplicar::class);
+        $unidad = $crearUnidadMedidaSinDuplicar->ejecutar($nombre, $abreviatura, $tipo, $decimales, $activo);
+        $resultado = null;
+        if ($unidad !== null) {
+            $resultado = $this->unidadMedidaDominioAArray($unidad);
+        }
+        return $resultado;
+    }
+
+    private function asegurar_unidad_desde_form(string $unidad, array $datos): string {
+        global $container;
+        $asegurarUnidadMedidaDesdeFormulario = $container->get(\Ventas\UnidadesMedida\Application\AsegurarUnidadMedidaDesdeFormulario::class);
+        return $asegurarUnidadMedidaDesdeFormulario->ejecutar($unidad, $datos);
     }
 
     private function datos_nueva_unidad_post(): array {
@@ -124,10 +259,10 @@ class ControladorProductos {
                     $respuesta["error"] = "El nombre es obligatorio.";
                 else if (texto_invalido($abreviatura))
                     $respuesta["error"] = "La abreviatura es obligatoria.";
-                else if (UnidadMedida::buscar_por_abreviatura($abreviatura) !== null)
+                else if ($this->buscar_unidad_por_abreviatura($abreviatura) !== null)
                     $respuesta["error"] = "Ya existe una unidad con esa abreviatura.";
                 else {
-                    $unidad = UnidadMedida::crear_sin_duplicar($nombre, $abreviatura, $tipo, $decimales, 1);
+                    $unidad = $this->crear_unidad_sin_duplicar($nombre, $abreviatura, $tipo, $decimales, 1);
                     if ($unidad !== null) {
                         flash_ok("Unidad creada correctamente");
                         $respuesta = ["ok" => true, "error" => "", "unidad" => [
@@ -152,7 +287,9 @@ class ControladorProductos {
             return true;
         if ((string)($producto["stock_tipo_stock"] ?? "") === "propio")
             return false;
-        if (Stock::contar_productos_asociados($id_stock) > 1)
+        global $container;
+        $contarProductosAsociadosStock = $container->get(\Ventas\Stock\Application\ContarProductosAsociadosStock::class);
+        if ($contarProductosAsociadosStock->ejecutar($id_stock) > 1)
             return true;
         $nombre_producto = strtolower(trim((string)($producto["nombre"] ?? "")));
         $nombre_stock = strtolower(trim((string)($producto["stock_nombre"] ?? "")));
@@ -205,29 +342,31 @@ class ControladorProductos {
     }
 
     private function guardar_listas_producto(int $id_producto, float $costo, float $precio_final = 0): void {
+        global $container;
+        $guardarPrecioProducto = $container->get(\Ventas\ListasPrecios\Application\GuardarPrecioProducto::class);
         $precios = $_POST["precio_lista"] ?? [];
         $porcentajes = $_POST["porcentaje_lista"] ?? [];
         if (!is_array($precios))
             $precios = [];
         if (!is_array($porcentajes))
             $porcentajes = [];
-        foreach (ListaPrecio::listar(true) as $lista) {
+        foreach ($this->listar_listas_precios_activas() as $lista) {
             $id_lista = (int)$lista["id"];
             $precio = parsear_numero_form($precios[$id_lista] ?? 0, 0);
             $porcentaje = parsear_numero_form($porcentajes[$id_lista] ?? 0, 0);
-            if (ListaPrecio::es_lista_costo($lista)) {
+            if ($this->es_lista_costo($lista)) {
                 $precio = $costo;
                 $porcentaje = 0;
             }
-            if (!ListaPrecio::es_lista_costo($lista) && $costo > 0 && $porcentaje > 0)
+            if (!$this->es_lista_costo($lista) && $costo > 0 && $porcentaje > 0)
                 $precio = $costo * (1 + ($porcentaje / 100));
             else if ($precio <= 0 && $costo > 0)
                 $precio = $costo * (1 + ($porcentaje / 100));
-            if (!ListaPrecio::es_lista_costo($lista) && $porcentaje <= 0 && $costo > 0 && $precio > 0)
+            if (!$this->es_lista_costo($lista) && $porcentaje <= 0 && $costo > 0 && $precio > 0)
                 $porcentaje = (($precio / $costo) - 1) * 100;
-            if (ListaPrecio::es_lista_costo($lista))
+            if ($this->es_lista_costo($lista))
                 $porcentaje = 0;
-            ListaPrecio::guardar_precio_producto($id_producto, $id_lista, $porcentaje, $precio);
+            $guardarPrecioProducto->ejecutar($id_producto, $id_lista, $porcentaje, $precio);
         }
     }
 
@@ -268,6 +407,7 @@ class ControladorProductos {
                     $nombre_stock_pre = "";
                 $p = ["id" => 0, "nombre" => ($nombre_stock_pre !== "" ? $nombre_stock_pre : ""), "cod_barras" => "", "id_stock" => ($id_stock_pre > 0 ? $id_stock_pre : null), "id_asociado" => null, "factor_conversion" => 1, "ganancia" => 0, "precio_final" => 0, "activo" => 1, "usa_stock_general" => ($id_stock_pre > 0 ? 1 : 0), "stock_unidad" => "u", "stock_cantidad" => 0, "stock_minimo" => 0, "stock_maximo" => 0, "stock_precio_costo" => 0, "stock_moneda_costo" => "ARS", "stock_costo_origen" => 0];
                 $precios_producto = [];
+                $cotizacion_dolar_stock = $this->cotizacion_dolar_stock();
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/productos/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -277,11 +417,13 @@ class ControladorProductos {
 
     public function exportar_altas(): void {
         if ($this->permiso()) {
+            global $container;
+            $obtenerPrecioProductoCargado = $container->get(\Ventas\ListasPrecios\Application\ObtenerPrecioProductoCargado::class);
             $formato = strtolower((string)obtener_get("formato", "csv"));
             $solo_alta = (string)obtener_get("alcance", "alta") !== "todos";
             $id_lista = (int)obtener_get("id_lista_precio", 0);
             $nombre_lista = "";
-            foreach (ListaPrecio::listar(true) as $lista) {
+            foreach ($this->listar_listas_precios_activas() as $lista) {
                 if ((int)$lista["id"] === $id_lista)
                     $nombre_lista = (string)$lista["nombre"];
             }
@@ -290,11 +432,26 @@ class ControladorProductos {
                 redirigir("index.php?c=exportaciones&a=index");
                 return;
             }
-            $productos = Producto::listar_para_exportar($solo_alta);
+            $productos = [];
+            $listarProductosParaExportar = $container->get(\Ventas\Productos\Application\ListarProductosParaExportar::class);
+            foreach ($listarProductosParaExportar->ejecutar() as $prod) {
+                $prod_array = [
+                    'id' => $prod['id'] ?? 0,
+                    'nombre' => $prod['nombre'] ?? '',
+                    'cod_barras' => $prod['cod_barras'] ?? '',
+                    'stock_nombre' => $prod['stock_nombre'] ?? '',
+                    'stock_cantidad' => $prod['stock_cantidad'] ?? 0,
+                    'stock_unidad' => $prod['stock_unidad'] ?? '',
+                    'activo' => $prod['activo'] ?? 1,
+                ];
+                if ($solo_alta && (int)$prod_array['activo'] !== 1)
+                    continue;
+                $productos[] = $prod_array;
+            }
             foreach ($productos as &$p) {
                 $precio = 0.0;
                 if ($id_lista > 0) {
-                    $precio_lista = ListaPrecio::precio_producto_cargado((int)($p["id"] ?? 0), $id_lista);
+                    $precio_lista = $obtenerPrecioProductoCargado->ejecutar((int)($p["id"] ?? 0), $id_lista);
                     if ($precio_lista !== null && (float)$precio_lista["precio"] > 0)
                         $precio = (float)$precio_lista["precio"];
                 }
@@ -375,7 +532,7 @@ class ControladorProductos {
 
     public function crear(): void {
         if ($this->permiso()) {
-            if (count(ListaPrecio::listar(true)) === 0) {
+            if (count($this->listar_listas_precios_activas()) === 0) {
                 flash_error("Primero carga una lista de precios.");
                 redirigir("index.php?c=listas_precios&a=index");
                 return;
@@ -408,7 +565,9 @@ class ControladorProductos {
                     else {
                         if (texto_invalido($cod_barras))
                             $cod_barras = $this->generar_codigo_barras_interno();
-                        if (Producto::cod_barras_existe($cod_barras, 0))
+                        global $container;
+                        $buscarProductoPorCodigoBarras = $container->get(\Ventas\Productos\Application\BuscarProductoPorCodigoBarras::class);
+                        if ($buscarProductoPorCodigoBarras->ejecutar($cod_barras) !== null)
                             $error = "El código del producto ya existe.";
                         else {
                             if (texto_invalido($unidad_stock))
@@ -430,24 +589,27 @@ class ControladorProductos {
                             if ($usa_stock_general && $factor_conversion <= 0)
                                 $error = "El consumo por venta debe ser mayor a cero.";
                             if (!$usa_stock_general) {
-                                $unidad_stock = UnidadMedida::asegurar_desde_form($unidad_stock, $this->datos_nueva_unidad_post());
-                                $id_stock = Stock::crear_retornar_id_con_tipo($nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio", $moneda_costo);
+                                $unidad_stock = $this->asegurar_unidad_desde_form($unidad_stock, $this->datos_nueva_unidad_post());
+                                $id_stock = $this->crear_stock_retornando_id($nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio", $moneda_costo);
                                 if ($id_stock <= 0)
                                     $error = "No se pudo crear el stock automatico del producto.";
                             }
                             if ($usa_stock_general && $id_stock <= 0)
                                 $error = "Tenés que seleccionar un stock principal.";
                             if ($error === "") {
-                                if (!Producto::stock_existe($id_stock))
+                                global $container;
+                                $verificarStockProducto = $container->get(\Ventas\Productos\Application\VerificarStockProducto::class);
+                                if (!$verificarStockProducto->ejecutar($id_stock))
                                     $error = "El stock principal seleccionado no existe.";
                                 if ($error === "" && $usa_stock_general) {
-                                    $stock_general = Stock::buscar_por_id($id_stock);
+                                    $stock_general = $this->buscar_stock_por_id_array($id_stock);
                                     if ($stock_general === null || (string)($stock_general["tipo_stock"] ?? "") !== "general" || (int)($stock_general["activo"] ?? 0) !== 1)
                                         $error = "Selecciona un stock general activo.";
                                 }
                                 if ($error === "") {
                                     $precio_costo = 0.0;
-                                    $costo_stock = Producto::obtener_precio_costo_stock($id_stock);
+                                    $obtenerPrecioCostoStockProducto = $container->get(\Ventas\Productos\Application\ObtenerPrecioCostoStockProducto::class);
+                                    $costo_stock = $obtenerPrecioCostoStockProducto->ejecutar($id_stock);
                                     if ($costo_stock !== null)
                                         $precio_costo = $costo_stock;
                                     if ($factor_conversion <= 0 && $usa_stock_general)
@@ -455,17 +617,19 @@ class ControladorProductos {
                                     if ($ganancia < 0)
                                         $ganancia = 0;
                                     if ($error === "") {
-                                        $precio_final = Producto::calcular_precio_final($precio_costo, $factor_conversion, $ganancia);
+                                        $calcularPrecioFinalProducto = $container->get(\Ventas\Productos\Application\CalcularPrecioFinalProducto::class);
+                                        $precio_final = $calcularPrecioFinalProducto->ejecutar($precio_costo, $factor_conversion, $ganancia);
                                         if ($precio_final <= 0 && $precio_manual > 0)
                                             $precio_final = $precio_manual;
-                                        $id_producto_nuevo = Producto::crear_retornar_id($nombre, $cod_barras, $id_stock, $factor_conversion, $ganancia, $precio_final, $activo);
+                                        $crearProductoRetornandoId = $container->get(\Ventas\Productos\Application\CrearProductoRetornandoId::class);
+                                        $id_producto_nuevo = $crearProductoRetornandoId->ejecutar($nombre, $cod_barras, $id_stock, $factor_conversion, $ganancia, $precio_final, $activo);
                                         if ($id_producto_nuevo > 0) {
                                             $this->guardar_listas_producto($id_producto_nuevo, $precio_costo, $precio_final);
                                             flash_ok($usa_stock_general ? "Producto creado con stock general asociado." : "Producto creado con stock propio.");
                                             redirigir("index.php?c=productos&a=index");
                                         } else {
-                                            if (!$usa_stock_general && $id_stock > 0 && Stock::contar_productos_asociados($id_stock) === 0)
-                                                Stock::eliminar($id_stock);
+                                            if (!$usa_stock_general && $id_stock > 0 && $this->contar_productos_asociados_stock($id_stock) === 0)
+                                                $this->eliminar_stock($id_stock);
                                             $error = "No se pudo crear el producto (ver logs).";
                                         }
                                     }
@@ -484,11 +648,12 @@ class ControladorProductos {
                 $p = ["id" => 0, "nombre" => $nombre, "cod_barras" => $cod_barras, "id_stock" => ($id_stock_pre > 0 ? $id_stock_pre : null),
                     "id_asociado" => null, "factor_conversion" => $factor_conversion, "ganancia" => $ganancia,
                     "precio_final" => $precio_manual ?? 0, "activo" => $activo, "usa_stock_general" => !empty($usa_stock_general) ? 1 : 0,
-                    "stock_unidad" => $unidad_stock ?? "u", "stock_cantidad" => $cantidad_stock ?? 0, "stock_minimo" => $stock_minimo ?? 0, "stock_maximo" => $stock_maximo ?? 0, "stock_precio_costo" => Stock::costo_en_pesos($precio_costo_form ?? 0, $moneda_costo ?? "ARS"), "stock_moneda_costo" => $moneda_costo ?? "ARS", "stock_costo_origen" => $precio_costo_form ?? 0];
+                    "stock_unidad" => $unidad_stock ?? "u", "stock_cantidad" => $cantidad_stock ?? 0, "stock_minimo" => $stock_minimo ?? 0, "stock_maximo" => $stock_maximo ?? 0, "stock_precio_costo" => $this->costo_stock_en_pesos($precio_costo_form ?? 0, $moneda_costo ?? "ARS"), "stock_moneda_costo" => $moneda_costo ?? "ARS", "stock_costo_origen" => $precio_costo_form ?? 0];
                 $stocks = $this->listar_stock_para_select();
                 $unidades_medida = $this->listar_unidades();
-                $listas_precios = ListaPrecio::listar(true);
+                $listas_precios = $this->listar_listas_precios_activas();
                 $precios_producto = [];
+                $cotizacion_dolar_stock = $this->cotizacion_dolar_stock();
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/productos/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -500,10 +665,6 @@ class ControladorProductos {
         if ($this->permiso()) {
             global $container;
             $buscarProductoFormularioPorId = $container->get(\Ventas\Productos\Application\BuscarProductoFormularioPorId::class);
-            $obtenerPreciosProducto = $container->get(\Ventas\Productos\Application\ObtenerPreciosProducto::class);
-            $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
-            $listarStockGeneral = $container->get(\Ventas\Stock\Application\ListarStockGeneral::class);
-            $listarUnidadesMedida = $container->get(\Ventas\UnidadesMedida\Application\ListarUnidadesMedida::class);
             $id = (int)obtener_get("id", 0);
             $p = $buscarProductoFormularioPorId->ejecutar($id);
             if ($p === null) {
@@ -525,6 +686,7 @@ class ControladorProductos {
                 foreach ($listarListasPrecios->ejecutar() as $lista_dominio)
                     $listas_precios[] = $this->listaPrecioDominioAArray($lista_dominio);
                 $precios_producto = $obtenerPreciosProducto->ejecutar($id);
+                $cotizacion_dolar_stock = $this->cotizacion_dolar_stock();
                 include __DIR__ . "/../vistas/parciales/encabezado.php";
                 include __DIR__ . "/../vistas/productos/formulario.php";
                 include __DIR__ . "/../vistas/parciales/pie.php";
@@ -541,7 +703,9 @@ class ControladorProductos {
                     $error = "Token inválido. Recargá la página.";
                 else {
                     $id = (int)obtener_post("id", 0);
-                    $p_actual = Producto::buscar_por_id($id);
+                    global $container;
+                    $buscarProductoPorId = $container->get(\Ventas\Productos\Application\BuscarProductoPorId::class);
+                    $p_actual = $buscarProductoPorId->ejecutar($id);
                     if ($p_actual === null)
                         $error = "Producto no encontrado.";
                     else {
@@ -566,7 +730,10 @@ class ControladorProductos {
                                 $cod_barras = trim((string)($p_actual["cod_barras"] ?? ""));
                             if (texto_invalido($cod_barras))
                                 $cod_barras = $this->generar_codigo_barras_interno();
-                            if (Producto::cod_barras_existe($cod_barras, $id))
+                            global $container;
+                            $buscarProductoPorCodigoBarras = $container->get(\Ventas\Productos\Application\BuscarProductoPorCodigoBarras::class);
+                            $prod_encontrado = $buscarProductoPorCodigoBarras->ejecutar($cod_barras);
+                            if ($prod_encontrado !== null && (int)($prod_encontrado["id"] ?? 0) !== $id)
                                 $error = "Ya existe otro producto con ese código.";
                             else {
                                 $id_stock = 0;
@@ -593,13 +760,13 @@ class ControladorProductos {
                                 if ($usa_stock_general && $factor_conversion <= 0)
                                     $error = "El consumo por venta debe ser mayor a cero.";
                                 if (!$usa_stock_general) {
-                                    if (!$usaba_stock_general && $id_stock_anterior > 0 && Stock::contar_productos_asociados($id_stock_anterior) <= 1) {
+                                    if (!$usaba_stock_general && $id_stock_anterior > 0 && $this->contar_productos_asociados_stock($id_stock_anterior) <= 1) {
                                         $id_stock = $id_stock_anterior;
-                                        $unidad_stock = UnidadMedida::asegurar_desde_form($unidad_stock, $this->datos_nueva_unidad_post());
-                                        Stock::actualizar_con_tipo($id_stock, $nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio", $moneda_costo);
+                                        $unidad_stock = $this->asegurar_unidad_desde_form($unidad_stock, $this->datos_nueva_unidad_post());
+                                        $this->actualizar_stock($id_stock, $nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio", $moneda_costo);
                                     } else {
-                                        $unidad_stock = UnidadMedida::asegurar_desde_form($unidad_stock, $this->datos_nueva_unidad_post());
-                                        $id_stock = Stock::crear_retornar_id_con_tipo($nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio", $moneda_costo);
+                                        $unidad_stock = $this->asegurar_unidad_desde_form($unidad_stock, $this->datos_nueva_unidad_post());
+                                        $id_stock = $this->crear_stock_retornando_id($nombre, $unidad_stock, $cantidad_stock, $precio_costo_form, $activo, $stock_minimo, $stock_maximo, "propio", $moneda_costo);
                                         if ($id_stock <= 0)
                                             $error = "No se pudo crear el stock automatico del producto.";
                                     }
@@ -608,29 +775,35 @@ class ControladorProductos {
                                     if ($id_stock <= 0)
                                         $error = "Tenes que seleccionar un stock principal.";
                                     else {
-                                        if (!Producto::stock_existe($id_stock))
+                                        $verificarStockProducto = $container->get(\Ventas\Productos\Application\VerificarStockProducto::class);
+                                        if (!$verificarStockProducto->ejecutar($id_stock))
                                             $error = "El stock principal seleccionado no existe.";
                                         if ($error === "" && $usa_stock_general) {
-                                            $stock_general = Stock::buscar_por_id($id_stock);
+                                            $stock_general = $this->buscar_stock_por_id_array($id_stock);
                                             if ($stock_general === null || (string)($stock_general["tipo_stock"] ?? "") !== "general" || (int)($stock_general["activo"] ?? 0) !== 1)
                                                 $error = "Selecciona un stock general activo.";
                                         }
                                         if ($error === "") {
                                             $precio_costo = 0.0;
-                                            $costo_stock = Producto::obtener_precio_costo_stock($id_stock);
+                                            $obtenerPrecioCostoStockProducto = $container->get(\Ventas\Productos\Application\ObtenerPrecioCostoStockProducto::class);
+                                            $costo_stock = $obtenerPrecioCostoStockProducto->ejecutar($id_stock);
                                             if ($costo_stock !== null)
                                                 $precio_costo = $costo_stock;
 
-                                            $precio_final = Producto::calcular_precio_final($precio_costo, $factor_conversion, $ganancia);
+                                            $calcularPrecioFinalProducto = $container->get(\Ventas\Productos\Application\CalcularPrecioFinalProducto::class);
+                                            $precio_final = $calcularPrecioFinalProducto->ejecutar($precio_costo, $factor_conversion, $ganancia);
                                             if ($precio_final <= 0 && $precio_manual > 0)
                                                 $precio_final = $precio_manual;
 
-                                            $ok = Producto::actualizar($id, $nombre, $cod_barras, $id_stock, $factor_conversion, $ganancia, $precio_final, $activo);
+                                            $actualizarProducto = $container->get(\Ventas\Productos\Application\ActualizarProducto::class);
+                                            $ok = $actualizarProducto->ejecutar($id, $nombre, $cod_barras, $id_stock, $factor_conversion, $ganancia, $precio_final, $activo);
 
                                             if ($ok) {
-                                                $this->guardar_listas_producto($id, $precio_costo, $precio_final);
-                                                if (!$usaba_stock_general && !empty($id_stock_anterior) && $id_stock_anterior !== $id_stock && Stock::contar_productos_asociados($id_stock_anterior) === 0)
-                                                    Stock::eliminar($id_stock_anterior);
+                                                if (!$usaba_stock_general && !empty($id_stock_anterior) && $id_stock_anterior !== $id_stock) {
+                                                    $contarProductosAsociadosStock = $container->get(\Ventas\Stock\Application\ContarProductosAsociadosStock::class);
+                                                    if ($contarProductosAsociadosStock->ejecutar($id_stock_anterior) === 0)
+                                                        $this->eliminar_stock($id_stock_anterior);
+                                                }
                                                 flash_ok("Producto actualizado correctamente.");
                                                 redirigir("index.php?c=productos&a=index");
                                             } else
@@ -660,7 +833,7 @@ class ControladorProductos {
                     "stock_cantidad" => $cantidad_stock ?? ($p_actual["stock_cantidad"] ?? 0),
                     "stock_minimo" => $stock_minimo ?? 0,
                     "stock_maximo" => $stock_maximo ?? 0,
-                    "stock_precio_costo" => Stock::costo_en_pesos($precio_costo_form ?? 0, $moneda_costo ?? "ARS"),
+                    "stock_precio_costo" => $this->costo_stock_en_pesos($precio_costo_form ?? 0, $moneda_costo ?? "ARS"),
                     "stock_moneda_costo" => $moneda_costo ?? "ARS",
                     "stock_costo_origen" => $precio_costo_form ?? 0,
                 ]);
@@ -676,25 +849,24 @@ class ControladorProductos {
     public function eliminar(): void {
         if ($this->permiso()) {
             $id = (int)obtener_get("id", 0);
-            $p = Producto::buscar_por_id($id);
-          if ($p === null) {
+            global $container;
+            $buscarProductoPorId = $container->get(\Ventas\Productos\Application\BuscarProductoPorId::class);
+            $p = $buscarProductoPorId->ejecutar($id);
+            if ($p === null) {
                 flash_error("Producto no encontrado.");
                 redirigir("index.php?c=productos&a=index");
             } else {
-                if (Producto::esta_en_detalle_venta($id)) {
-                    flash_error("No se puede eliminar: el producto está en ventas (detalle_venta).");
-                    redirigir("index.php?c=productos&a=index");
-                } else {
+                $eliminarProductoNoVendido = $container->get(\Ventas\Productos\Application\EliminarProductoNoVendido::class);
+                $ok = $eliminarProductoNoVendido->ejecutar($id);
+                if ($ok) {
                     $id_stock_producto = (int)($p["id_stock"] ?? 0);
-                    $ok = Producto::eliminar($id);
-                    if ($ok) {
-                        if ($id_stock_producto > 0 && Stock::contar_productos_asociados($id_stock_producto) === 0)
-                            Stock::eliminar($id_stock_producto);
-                        flash_ok("Producto eliminado.");
-                    } else
-                        flash_error("No se pudo eliminar (ver logs).");
-                    redirigir("index.php?c=productos&a=index");
+                    if ($id_stock_producto > 0 && $this->contar_productos_asociados_stock($id_stock_producto) === 0)
+                        $this->eliminar_stock($id_stock_producto);
+                    flash_ok("Producto eliminado.");
+                } else {
+                    flash_error("No se puede eliminar: el producto está en ventas (detalle_venta).");
                 }
+                redirigir("index.php?c=productos&a=index");
             }
         }
     }

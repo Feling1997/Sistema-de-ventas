@@ -6,12 +6,13 @@ namespace Ventas\Ventas\Infrastructure;
 
 use PDO;
 use Ventas\Ventas\Domain\NuevaVenta\Repositorios\ConfiguracionVentaRepository;
-use Ventas\Infraestructura\Configuracion\DatabaseConfig;
-use Ventas\Infraestructura\Contenedor\Container;
-use Ventas\Infraestructura\Persistencia\MySQL\PdoConnectionFactory;
+use Ventas\Core\Infrastructure\Config\DatabaseConfig;
+use Ventas\Core\Infrastructure\Container\Container;
+use Ventas\Core\Infrastructure\Persistence\Mysql\PdoConnectionFactory;
 use Ventas\Ventas\Application\BuscarVentaPorId;
 use Ventas\Ventas\Application\ConfirmarVenta;
 use Ventas\Ventas\Application\GenerarPdfComprobanteVenta;
+use Ventas\Ventas\Application\InicializarEsquemaVentas;
 use Ventas\Ventas\Application\ListarVentas;
 use Ventas\Ventas\Application\NuevaVenta\ActualizarItemCarritoVenta;
 use Ventas\Ventas\Application\NuevaVenta\AgregarItemCarritoVenta;
@@ -37,8 +38,10 @@ use Ventas\Ventas\Application\ObtenerDetallesVentas;
 use Ventas\Ventas\Application\ObtenerDetalleVenta;
 use Ventas\Ventas\Application\ObtenerEstadosFiscalesVentas;
 use Ventas\Ventas\Application\ObtenerResumenVentasPeriodo;
+use Ventas\Ventas\Application\ObtenerTiposComprobanteVenta;
 use Ventas\Ventas\Application\RenderizarTicketVenta;
 use Ventas\Ventas\Domain\Repositorios\ComprobanteVentaRepository;
+use Ventas\Ventas\Domain\Repositorios\TipoComprobanteVentaRepository;
 use Ventas\Ventas\Domain\Repositorios\VentaRepository;
 use Ventas\Ventas\Domain\NuevaVenta\Repositorios\CarritoVentaRepository;
 use Ventas\Ventas\Domain\NuevaVenta\Repositorios\ClienteVentaRepository;
@@ -123,6 +126,8 @@ final class RegistroVentas
 
         $container->singleton(ComprobanteVentaRepository::class, fn (Container $container): ComprobanteVentaRepository => new HtmlPdfComprobanteVentaRepository($container->get(ConfiguracionVentaRepository::class)));
 
+        $container->singleton(TipoComprobanteVentaRepository::class, fn (): TipoComprobanteVentaRepository => new MemoriaTipoComprobanteVentaRepository());
+
         $container->bind(ListarVentas::class, fn (Container $container): ListarVentas => new ListarVentas($container->get(VentaRepository::class)));
 
         $container->bind(ListarVentasPeriodo::class, fn (Container $container): ListarVentasPeriodo => new ListarVentasPeriodo($container->get(VentaRepository::class)));
@@ -135,6 +140,8 @@ final class RegistroVentas
 
         $container->bind(ObtenerResumenVentasPeriodo::class, fn (Container $container): ObtenerResumenVentasPeriodo => new ObtenerResumenVentasPeriodo($container->get(VentaRepository::class)));
 
+        $container->bind(InicializarEsquemaVentas::class, fn (Container $container): InicializarEsquemaVentas => new InicializarEsquemaVentas($container->get(VentaRepository::class)));
+
         $container->bind(ObtenerEstadosFiscalesVentas::class, fn (Container $container): ObtenerEstadosFiscalesVentas => new ObtenerEstadosFiscalesVentas($container->get(VentaRepository::class)));
 
         $container->bind(ObtenerDetallesVentas::class, fn (Container $container): ObtenerDetallesVentas => new ObtenerDetallesVentas($container->get(VentaRepository::class)));
@@ -144,6 +151,8 @@ final class RegistroVentas
         $container->bind(GenerarPdfComprobanteVenta::class, fn (Container $container): GenerarPdfComprobanteVenta => new GenerarPdfComprobanteVenta($container->get(VentaRepository::class), $container->get(ComprobanteVentaRepository::class)));
 
         $container->bind(ObtenerArchivoPdfVenta::class, fn (Container $container): ObtenerArchivoPdfVenta => new ObtenerArchivoPdfVenta($container->get(ComprobanteVentaRepository::class)));
+
+        $container->bind(ObtenerTiposComprobanteVenta::class, fn (Container $container): ObtenerTiposComprobanteVenta => new ObtenerTiposComprobanteVenta($container->get(TipoComprobanteVentaRepository::class)));
 
         $container->bind(ObtenerCarritoVenta::class, fn (Container $container): ObtenerCarritoVenta => new ObtenerCarritoVenta($container->get(CarritoVentaRepository::class)));
 

@@ -56,7 +56,7 @@ final class MySQLConfiguracionVentaRepository implements ConfiguracionVentaRepos
         $datos = $this->obtenerConfiguracion();
         $configuracion = [
             'mostrar_reparaciones' => (string) ($datos['mostrar_reparaciones'] ?? '1'),
-            'url_reparaciones' => (string) ($datos['url_reparaciones'] ?? 'index.php?c=reparaciones&a=index'),
+            'url_reparaciones' => (string) ($datos['url_reparaciones'] ?? '/Sistema-de-ventas/laravel/public/reparaciones'),
         ];
 
         return $configuracion;
@@ -137,7 +137,7 @@ final class MySQLConfiguracionVentaRepository implements ConfiguracionVentaRepos
             'logo_ticket' => '',
             'ticket_imagen_completa' => '0',
             'ticket_logo_termico' => '1',
-            'url_reparaciones' => 'index.php?c=reparaciones&a=index',
+            'url_reparaciones' => '/Sistema-de-ventas/laravel/public/reparaciones',
             'mostrar_reparaciones' => '1',
         ];
 

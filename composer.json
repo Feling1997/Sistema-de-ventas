@@ -41,7 +41,19 @@
             "Ventas\\Auth\\Infrastructure\\": "src/auth/infrastructure/",
             "Ventas\\Configuracion\\Application\\": "src/configuracion/application/",
             "Ventas\\Configuracion\\Domain\\": "src/configuracion/domain/",
-            "Ventas\\Configuracion\\Infrastructure\\": "src/configuracion/infrastructure/"
+            "Ventas\\Configuracion\\Infrastructure\\": "src/configuracion/infrastructure/",
+            "Ventas\\CuentasCorrientes\\Application\\": "src/cuentascorrientes/application/",
+            "Ventas\\CuentasCorrientes\\Domain\\": "src/cuentascorrientes/domain/",
+            "Ventas\\CuentasCorrientes\\Infrastructure\\": "src/cuentascorrientes/infrastructure/",
+            "Ventas\\Importacion\\Application\\": "src/importacion/application/",
+            "Ventas\\Importacion\\Domain\\": "src/importacion/domain/",
+            "Ventas\\Importacion\\Infrastructure\\": "src/importacion/infrastructure/",
+            "Ventas\\Precios\\Application\\": "src/precios/application/",
+            "Ventas\\Precios\\Domain\\": "src/precios/domain/",
+            "Ventas\\Precios\\Infrastructure\\": "src/precios/infrastructure/",
+            "Ventas\\Backups\\Application\\": "src/backups/application/",
+            "Ventas\\Backups\\Domain\\": "src/backups/domain/",
+            "Ventas\\Backups\\Infrastructure\\": "src/backups/infrastructure/"
         }
     }
 }

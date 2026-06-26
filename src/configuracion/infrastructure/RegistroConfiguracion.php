@@ -5,15 +5,25 @@ declare(strict_types=1);
 namespace Ventas\Configuracion\Infrastructure;
 
 use PDO;
+use Ventas\Configuracion\Application\GuardarArchivoConfiguracion;
+use Ventas\Configuracion\Application\GuardarConfiguracion;
+use Ventas\Configuracion\Application\InicializarEsquemaConfiguracion;
 use Ventas\Configuracion\Application\ObtenerConfiguracionAuth;
 use Ventas\Configuracion\Application\ObtenerConfiguracionBalanza;
 use Ventas\Configuracion\Application\ObtenerConfiguracionFiscal;
 use Ventas\Configuracion\Application\ObtenerConfiguracionGeneral;
 use Ventas\Configuracion\Application\ObtenerConfiguracionVenta;
+use Ventas\Configuracion\Application\ObtenerGrupoConfiguracion;
+use Ventas\Configuracion\Application\ObtenerMetadatosConfiguracion;
+use Ventas\Configuracion\Application\ProcesarLogoTermicoConfiguracion;
+use Ventas\Configuracion\Application\ProcesarLogoTicketTermicoConfiguracion;
+use Ventas\Configuracion\Application\ProcesarLogoTicketTermicoHDConfiguracion;
+use Ventas\Configuracion\Application\RestablecerGrupoConfiguracion;
+use Ventas\Configuracion\Domain\Repositorios\ArchivoConfiguracionRepository;
 use Ventas\Configuracion\Domain\Repositorios\ConfiguracionRepository;
-use Ventas\Infraestructura\Configuracion\DatabaseConfig;
-use Ventas\Infraestructura\Contenedor\Container;
-use Ventas\Infraestructura\Persistencia\MySQL\PdoConnectionFactory;
+use Ventas\Core\Infrastructure\Config\DatabaseConfig;
+use Ventas\Core\Infrastructure\Container\Container;
+use Ventas\Core\Infrastructure\Persistence\Mysql\PdoConnectionFactory;
 
 final class RegistroConfiguracion
 {
@@ -37,6 +47,11 @@ final class RegistroConfiguracion
             dirname(__DIR__, 3) . '/configuraciones/arca.php'
         ));
 
+        $container->singleton(ArchivoConfiguracionRepository::class, fn (Container $container): ArchivoConfiguracionRepository => new FilesystemArchivoConfiguracionRepository(
+            dirname(__DIR__, 3),
+            $container->get(ConfiguracionRepository::class)
+        ));
+
         $container->bind(ObtenerConfiguracionGeneral::class, fn (Container $container): ObtenerConfiguracionGeneral => new ObtenerConfiguracionGeneral($container->get(ConfiguracionRepository::class)));
 
         $container->bind(ObtenerConfiguracionFiscal::class, fn (Container $container): ObtenerConfiguracionFiscal => new ObtenerConfiguracionFiscal($container->get(ConfiguracionRepository::class)));
@@ -46,5 +61,23 @@ final class RegistroConfiguracion
         $container->bind(ObtenerConfiguracionBalanza::class, fn (Container $container): ObtenerConfiguracionBalanza => new ObtenerConfiguracionBalanza($container->get(ConfiguracionRepository::class)));
 
         $container->bind(ObtenerConfiguracionAuth::class, fn (Container $container): ObtenerConfiguracionAuth => new ObtenerConfiguracionAuth($container->get(ConfiguracionRepository::class)));
+
+        $container->bind(GuardarConfiguracion::class, fn (Container $container): GuardarConfiguracion => new GuardarConfiguracion($container->get(ConfiguracionRepository::class)));
+
+        $container->bind(RestablecerGrupoConfiguracion::class, fn (Container $container): RestablecerGrupoConfiguracion => new RestablecerGrupoConfiguracion($container->get(ConfiguracionRepository::class)));
+
+        $container->bind(ObtenerGrupoConfiguracion::class, fn (Container $container): ObtenerGrupoConfiguracion => new ObtenerGrupoConfiguracion($container->get(ConfiguracionRepository::class)));
+
+        $container->bind(ObtenerMetadatosConfiguracion::class, fn (Container $container): ObtenerMetadatosConfiguracion => new ObtenerMetadatosConfiguracion($container->get(ConfiguracionRepository::class)));
+
+        $container->bind(InicializarEsquemaConfiguracion::class, fn (Container $container): InicializarEsquemaConfiguracion => new InicializarEsquemaConfiguracion($container->get(ConfiguracionRepository::class)));
+
+        $container->bind(GuardarArchivoConfiguracion::class, fn (Container $container): GuardarArchivoConfiguracion => new GuardarArchivoConfiguracion($container->get(ArchivoConfiguracionRepository::class)));
+
+        $container->bind(ProcesarLogoTermicoConfiguracion::class, fn (Container $container): ProcesarLogoTermicoConfiguracion => new ProcesarLogoTermicoConfiguracion($container->get(ArchivoConfiguracionRepository::class)));
+
+        $container->bind(ProcesarLogoTicketTermicoConfiguracion::class, fn (Container $container): ProcesarLogoTicketTermicoConfiguracion => new ProcesarLogoTicketTermicoConfiguracion($container->get(ArchivoConfiguracionRepository::class)));
+
+        $container->bind(ProcesarLogoTicketTermicoHDConfiguracion::class, fn (Container $container): ProcesarLogoTicketTermicoHDConfiguracion => new ProcesarLogoTicketTermicoHDConfiguracion($container->get(ArchivoConfiguracionRepository::class)));
     }
 }

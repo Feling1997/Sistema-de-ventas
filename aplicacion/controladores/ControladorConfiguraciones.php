@@ -1,14 +1,86 @@
 <?php
 
-require_once __DIR__ . "/../modelos/ConfiguracionSistema.php";
-require_once __DIR__ . "/../modelos/Configuracion.php";
-require_once __DIR__ . "/../modelos/RespaldoSistema.php";
-require_once __DIR__ . "/../modelos/BackblazeB2.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
 
 class ControladorConfiguraciones {
+    private function contenedor_configuracion(): \Ventas\Infraestructura\Contenedor\Container {
+        global $container;
+
+        if (!$container instanceof \Ventas\Infraestructura\Contenedor\Container) {
+            $container = new \Ventas\Infraestructura\Contenedor\Container();
+        }
+
+        if (!$container->has(\Ventas\Configuracion\Application\GuardarArchivoConfiguracion::class)) {
+            \Ventas\Configuracion\Infrastructure\RegistroConfiguracion::registrar($container);
+        }
+
+        $resultado = $container;
+
+        return $resultado;
+    }
+
+    private function guardar_archivo_configuracion_modular(string $campo, string $actual, string $nombre_base): string {
+        $container = $this->contenedor_configuracion();
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\GuardarArchivoConfiguracion::class);
+        $resultado = $caso_uso->ejecutar($campo, $actual, $nombre_base);
+
+        return $resultado;
+    }
+
+    private function obtener_configuracion_general_modular(): array {
+        $container = $this->contenedor_configuracion();
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\ObtenerConfiguracionGeneral::class);
+        $resultado = $caso_uso->ejecutar();
+
+        return $resultado;
+    }
+
+    private function guardar_configuracion_modular(array $datos): bool {
+        $container = $this->contenedor_configuracion();
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\GuardarConfiguracion::class);
+        $resultado = $caso_uso->ejecutar($datos);
+
+        return $resultado;
+    }
+
+    private function restablecer_configuracion_modular(): bool {
+        $container = $this->contenedor_configuracion();
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\RestablecerGrupoConfiguracion::class);
+        $grupos = ["comercio", "ventas", "productos", "clientes", "listas", "notificaciones", "seguridad", "backup", "impresion", "menu", "apariencia", "sistema"];
+        $resultado = true;
+
+        foreach ($grupos as $grupo) {
+            $resultado = $caso_uso->ejecutar($grupo) && $resultado;
+        }
+
+        return $resultado;
+    }
+
+    private function contenedor_backups(): \Ventas\Infraestructura\Contenedor\Container {
+        $resultado = new \Ventas\Infraestructura\Contenedor\Container();
+        \Ventas\Backups\Infrastructure\RegistroBackups::registrar($resultado);
+
+        return $resultado;
+    }
+
+    private function generar_respaldo_modular(): array {
+        $container = $this->contenedor_backups();
+        $caso_uso = $container->get(\Ventas\Backups\Application\GenerarRespaldoSistema::class);
+        $resultado = $caso_uso->ejecutar();
+
+        return $resultado;
+    }
+
+    private function copiar_respaldo_modular(string $origen, string $destino): array {
+        $container = $this->contenedor_backups();
+        $caso_uso = $container->get(\Ventas\Backups\Application\CopiarRespaldoLocal::class);
+        $resultado = $caso_uso->ejecutar($origen, $destino);
+
+        return $resultado;
+    }
+
     private function permiso_admin(): bool {
         $ok = false;
         if (!require_login()) {
@@ -49,7 +121,9 @@ class ControladorConfiguraciones {
     }
 
     private function guardar_logo_ticket(string $actual): string {
-        return Configuracion::guardar_archivo("logo_ticket_archivo", $actual, "ticket_logo");
+        $resultado = $this->guardar_archivo_configuracion_modular("logo_ticket_archivo", $actual, "ticket_logo");
+
+        return $resultado;
     }
 
     private function guardar_imagen_panel(string $actual): string {
@@ -68,9 +142,11 @@ class ControladorConfiguraciones {
 
     public function backup(): void {
         if ($this->permiso_admin()) {
-            $config = ConfiguracionSistema::obtener();
+            $config = $this->obtener_configuracion_general_modular();
             $carpeta_respaldos = realpath(__DIR__ . "/../../respaldos") ?: (__DIR__ . "/../../respaldos");
-            $b2_configurado = BackblazeB2::configurado($config);
+            $container = $this->contenedor_backups();
+            $verificador = $container->get(\Ventas\Backups\Application\VerificarBackblazeConfigurado::class);
+            $b2_configurado = $verificador->ejecutar($config);
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/configuraciones/backup.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -98,7 +174,7 @@ class ControladorConfiguraciones {
                 redirigir("index.php?c=configuraciones&a=sistema" . ((string)obtener_post("seccion_navbar", "") === "reparaciones" ? "&seccion=reparaciones" : ""));
             }
 
-            $config_actual = ConfiguracionSistema::obtener();
+            $config_actual = $this->obtener_configuracion_general_modular();
             $orden_navbar = $_POST["navbar_modulos_orden"] ?? [];
             $visibles_navbar = $_POST["navbar_modulos_visibles"] ?? [];
             if (!is_array($orden_navbar))
@@ -190,8 +266,8 @@ class ControladorConfiguraciones {
                 "campos" => array_keys($datos),
                 "datos" => $datos,
             ]);
-            $ok_guardado = ConfiguracionSistema::guardar($datos);
-            $verificacion = ConfiguracionSistema::obtener();
+            $ok_guardado = $this->guardar_configuracion_modular($datos);
+            $verificacion = $this->obtener_configuracion_general_modular();
             $verificados = [];
             foreach ($datos as $clave => $valor)
                 $verificados[$clave] = $verificacion[$clave] ?? null;
@@ -221,7 +297,7 @@ class ControladorConfiguraciones {
                 redirigir("index.php?c=configuraciones&a=sistema");
             }
 
-            if (ConfiguracionSistema::restablecer())
+            if ($this->restablecer_configuracion_modular())
                 flash_ok("Configuracion restablecida a valores predeterminados.");
             else
                 flash_error("No se pudo restablecer la configuracion. Revisar permisos de escritura.");
@@ -242,7 +318,7 @@ class ControladorConfiguraciones {
                 redirigir("index.php?c=configuraciones&a=sistema");
             }
 
-            $respaldo = RespaldoSistema::generar();
+            $respaldo = $this->generar_respaldo_modular();
             if (empty($respaldo["ok"])) {
                 flash_error((string)($respaldo["mensaje"] ?? "No se pudo generar el respaldo."));
                 redirigir("index.php?c=configuraciones&a=sistema");
@@ -254,8 +330,13 @@ class ControladorConfiguraciones {
                 flash_error("El archivo de respaldo no se encontro.");
                 redirigir("index.php?c=configuraciones&a=sistema");
             }
-            if (BackblazeB2::configurado()) {
-                $subida = BackblazeB2::subir($ruta);
+            $config = $this->obtener_configuracion_general_modular();
+            $container = $this->contenedor_backups();
+            $verificador = $container->get(\Ventas\Backups\Application\VerificarBackblazeConfigurado::class);
+            if ($verificador->ejecutar($config)) {
+                $container = $this->contenedor_backups();
+                $casoSubida = $container->get(\Ventas\Backups\Application\SubirRespaldoBackblaze::class);
+                $subida = $casoSubida->ejecutar($ruta, $config);
                 if (empty($subida["ok"]))
                     registrar_log("BackblazeB2", (string)($subida["mensaje"] ?? "No se pudo subir respaldo."));
             }
@@ -267,7 +348,7 @@ class ControladorConfiguraciones {
             header("Content-Length: " . filesize($ruta));
             header("Cache-Control: no-store");
             readfile($ruta);
-            exit;
+            return;
         }
     }
 
@@ -285,7 +366,7 @@ class ControladorConfiguraciones {
             }
 
             $destino = (string)obtener_post("destino", "descargar");
-            $respaldo = RespaldoSistema::generar();
+            $respaldo = $this->generar_respaldo_modular();
             if (empty($respaldo["ok"])) {
                 flash_error((string)($respaldo["mensaje"] ?? "No se pudo generar el respaldo."));
                 redirigir("index.php?c=configuraciones&a=backup");
@@ -302,12 +383,12 @@ class ControladorConfiguraciones {
                 header("Content-Length: " . filesize($ruta));
                 header("Cache-Control: no-store");
                 readfile($ruta);
-                exit;
+                return;
             }
 
             if ($destino === "carpeta") {
                 $carpeta_destino = (string)obtener_post("carpeta_destino", "");
-                $copia = RespaldoSistema::copiarA($ruta, $carpeta_destino);
+                $copia = $this->copiar_respaldo_modular($ruta, $carpeta_destino);
                 if (!empty($copia["ok"]))
                     flash_ok("Respaldo copiado en: " . (string)$copia["ruta"]);
                 else
@@ -316,7 +397,10 @@ class ControladorConfiguraciones {
             }
 
             if ($destino === "backblaze") {
-                $subida = BackblazeB2::subir($ruta);
+                $config = $this->obtener_configuracion_general_modular();
+                $container = $this->contenedor_backups();
+                $casoSubida = $container->get(\Ventas\Backups\Application\SubirRespaldoBackblaze::class);
+                $subida = $casoSubida->ejecutar($ruta, $config);
                 if (!empty($subida["ok"]))
                     flash_ok("Respaldo subido a Backblaze B2: " . (string)($subida["fileName"] ?? basename($ruta)));
                 else
@@ -341,7 +425,10 @@ class ControladorConfiguraciones {
                 redirigir("index.php?c=configuraciones&a=sistema");
             }
 
-            $res = BackblazeB2::probar();
+            $config = $this->obtener_configuracion_general_modular();
+            $container = $this->contenedor_backups();
+            $caso = $container->get(\Ventas\Backups\Application\ProbarConexionBackblaze::class);
+            $res = $caso->ejecutar($config);
             if (!empty($res["ok"]))
                 flash_ok((string)$res["mensaje"]);
             else
@@ -362,13 +449,16 @@ class ControladorConfiguraciones {
                 redirigir("index.php?c=configuraciones&a=sistema");
             }
 
-            $respaldo = RespaldoSistema::generar();
+            $respaldo = $this->generar_respaldo_modular();
             if (empty($respaldo["ok"])) {
                 flash_error((string)($respaldo["mensaje"] ?? "No se pudo generar el respaldo."));
                 redirigir("index.php?c=configuraciones&a=sistema");
             }
 
-            $subida = BackblazeB2::subir((string)$respaldo["ruta"]);
+            $config = $this->obtener_configuracion_general_modular();
+            $container = $this->contenedor_backups();
+            $casoSubida = $container->get(\Ventas\Backups\Application\SubirRespaldoBackblaze::class);
+            $subida = $casoSubida->ejecutar((string)$respaldo["ruta"], $config);
             if (!empty($subida["ok"]))
                 flash_ok("Respaldo generado y subido a Backblaze B2: " . (string)($subida["fileName"] ?? ""));
             else
@@ -379,7 +469,7 @@ class ControladorConfiguraciones {
 
     public function reparaciones(): void {
         if ($this->permiso_admin()) {
-            $config = ConfiguracionSistema::obtener();
+            $config = $this->obtener_configuracion_general_modular();
             $opciones_reparaciones = $this->obtener_opciones_reparaciones($config);
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/configuraciones/reparaciones.php";
@@ -415,7 +505,7 @@ class ControladorConfiguraciones {
                 redirigir("index.php?c=configuraciones&a=reparaciones");
             }
 
-            $config_actual = ConfiguracionSistema::obtener();
+            $config_actual = $this->obtener_configuracion_general_modular();
             
             // Procesar opciones del menú
             $opciones_reparaciones = $_POST["opciones_reparaciones"] ?? [];
@@ -450,7 +540,7 @@ class ControladorConfiguraciones {
             // Fusionar con configuración actual para mantener otros valores
             $config_completa = array_merge($config_actual, $datos);
 
-            if (ConfiguracionSistema::guardar($config_completa))
+            if ($this->guardar_configuracion_modular($config_completa))
                 flash_ok("Configuración de reparaciones guardada correctamente.");
             else
                 flash_error("No se pudo guardar la configuración. Revisar permisos de escritura.");

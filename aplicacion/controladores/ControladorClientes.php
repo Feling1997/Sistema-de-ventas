@@ -1,5 +1,4 @@
 <?php
-require_once __DIR__ . "/../modelos/ListaPrecio.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
@@ -18,6 +17,39 @@ class ControladorClientes {
                 $ok = true;            
         }
         return $ok;
+    }
+
+    private function listaPrecioDominioAArray(\Ventas\ListasPrecios\Domain\Entidades\ListaPrecio $lista): array {
+        $resultado = [
+            "id" => $lista->id(),
+            "nombre" => $lista->nombre(),
+            "activo" => $lista->activo() ? 1 : 0,
+            "creado_en" => $lista->creadoEn(),
+        ];
+
+        return $resultado;
+    }
+
+    private function listar_listas_precios_activas(): array {
+        global $container;
+
+        $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
+        $resultado = [];
+
+        foreach ($listarListasPrecios->ejecutar(true) as $lista_precio_dominio) {
+            $resultado[] = $this->listaPrecioDominioAArray($lista_precio_dominio);
+        }
+
+        return $resultado;
+    }
+
+    private function id_lista_precio_predeterminada(): int {
+        global $container;
+
+        $obtenerListaPrecioPredeterminada = $container->get(\Ventas\ListasPrecios\Application\ObtenerListaPrecioPredeterminada::class);
+        $resultado = $obtenerListaPrecioPredeterminada->ejecutar();
+
+        return $resultado;
     }
 
     public function index(): void {
@@ -97,8 +129,8 @@ class ControladorClientes {
     public function nuevo(): void {
         if ($this->permiso()) {
             $modo = "crear";
-            $c = ["id" => 0, "nombre" => "", "dni" => "", "tipo_documento" => "DNI", "condicion_iva" => "Consumidor Final", "email" => "", "telefono" => "", "direccion" => "", "id_lista_precio" => ListaPrecio::id_predeterminada()];
-            $listas_precios = ListaPrecio::listar(true);
+            $c = ["id" => 0, "nombre" => "", "dni" => "", "tipo_documento" => "DNI", "condicion_iva" => "Consumidor Final", "email" => "", "telefono" => "", "direccion" => "", "id_lista_precio" => $this->id_lista_precio_predeterminada()];
+            $listas_precios = $this->listar_listas_precios_activas();
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/clientes/formulario.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -118,7 +150,7 @@ class ControladorClientes {
                     $tipo_documento = trim((string)obtener_post("tipo_documento", "DNI"));
                     $condicion_iva = trim((string)obtener_post("condicion_iva", "Consumidor Final"));
                     $email = trim((string)obtener_post("email", ""));
-                    $id_lista_precio = (int)obtener_post("id_lista_precio", ListaPrecio::id_predeterminada());
+                    $id_lista_precio = (int)obtener_post("id_lista_precio", $this->id_lista_precio_predeterminada());
                     $telefono = trim((string)obtener_post("telefono", ""));
                     $direccion = trim((string)obtener_post("direccion", ""));
                     if (texto_invalido($nombre)) 
@@ -177,7 +209,6 @@ class ControladorClientes {
             } else {
                 global $container;
                 $buscarClientePorId = $container->get(\Ventas\Clientes\Application\BuscarClientePorId::class);
-                $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
                 $cliente_dominio = $buscarClientePorId->ejecutar($id);
                 if ($cliente_dominio === null) {
                     flash_error("Cliente no encontrado.");
@@ -196,15 +227,7 @@ class ControladorClientes {
                         "creado_en" => $cliente_dominio->creadoEn(),
                     ];
                     $modo = "editar";
-                    $listas_precios = [];
-                    foreach ($listarListasPrecios->ejecutar() as $lista_precio_dominio) {
-                        $listas_precios[] = [
-                            "id" => $lista_precio_dominio->id(),
-                            "nombre" => $lista_precio_dominio->nombre(),
-                            "activo" => $lista_precio_dominio->activo() ? 1 : 0,
-                            "creado_en" => $lista_precio_dominio->creadoEn(),
-                        ];
-                    }
+                    $listas_precios = $this->listar_listas_precios_activas();
                     include __DIR__ . "/../vistas/parciales/encabezado.php";
                     include __DIR__ . "/../vistas/clientes/formulario.php";
                     include __DIR__ . "/../vistas/parciales/pie.php";
@@ -238,7 +261,7 @@ class ControladorClientes {
                             $tipo_documento = trim((string)obtener_post("tipo_documento", "DNI"));
                             $condicion_iva = trim((string)obtener_post("condicion_iva", "Consumidor Final"));
                             $email = trim((string)obtener_post("email", ""));
-                            $id_lista_precio = (int)obtener_post("id_lista_precio", ListaPrecio::id_predeterminada());
+                            $id_lista_precio = (int)obtener_post("id_lista_precio", $this->id_lista_precio_predeterminada());
                             $telefono = trim((string)obtener_post("telefono", ""));
                             $direccion = trim((string)obtener_post("direccion", ""));
 

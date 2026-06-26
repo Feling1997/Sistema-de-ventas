@@ -155,6 +155,36 @@ final class MySQLClienteRepository implements ClienteRepository
         return $tieneVentas;
     }
 
+    public function inicializarEsquemaFiscal(): void
+    {
+        $this->pdo->exec("CREATE TABLE IF NOT EXISTS clientes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            nombre VARCHAR(120) NOT NULL,
+            dni VARCHAR(30) NULL,
+            telefono VARCHAR(50) NULL,
+            direccion VARCHAR(180) NULL,
+            tipo_documento VARCHAR(20) NOT NULL DEFAULT 'DNI',
+            condicion_iva VARCHAR(40) NOT NULL DEFAULT 'Consumidor Final',
+            email VARCHAR(120) NULL,
+            id_lista_precio INT NULL,
+            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $this->asegurarColumna('nombre', "ALTER TABLE clientes ADD COLUMN nombre VARCHAR(120) NOT NULL DEFAULT '' AFTER id");
+        $this->asegurarColumna('dni', 'ALTER TABLE clientes ADD COLUMN dni VARCHAR(30) NULL AFTER nombre');
+        $this->asegurarColumna('telefono', 'ALTER TABLE clientes ADD COLUMN telefono VARCHAR(50) NULL AFTER dni');
+        $this->asegurarColumna('direccion', 'ALTER TABLE clientes ADD COLUMN direccion VARCHAR(180) NULL AFTER telefono');
+        $this->asegurarColumna('tipo_documento', "ALTER TABLE clientes ADD COLUMN tipo_documento VARCHAR(20) NOT NULL DEFAULT 'DNI' AFTER dni");
+        $this->asegurarColumna('condicion_iva', "ALTER TABLE clientes ADD COLUMN condicion_iva VARCHAR(40) NOT NULL DEFAULT 'Consumidor Final' AFTER tipo_documento");
+        $this->asegurarColumna('email', 'ALTER TABLE clientes ADD COLUMN email VARCHAR(120) NULL AFTER condicion_iva');
+        $this->asegurarColumna('id_lista_precio', 'ALTER TABLE clientes ADD COLUMN id_lista_precio INT NULL AFTER email');
+        $this->asegurarColumna('creado_en', 'ALTER TABLE clientes ADD COLUMN creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    }
+
+    private function asegurarColumna(string $columna, string $sqlAlter): void
+    {
+        asegurar_columna_bd($this->pdo, 'clientes', $columna, $sqlAlter);
+    }
+
     /**
      * @param array<string, mixed> $fila
      */

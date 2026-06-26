@@ -284,6 +284,140 @@ final class MySQLProductoRepository implements ProductoRepository
         return $producto;
     }
 
+    public function buscarPorCodigoBarras(string $codigo): ?array
+    {
+        $producto = null;
+        $codigoNormalizado = trim($codigo);
+
+        if ($codigoNormalizado !== '') {
+            $statement = $this->pdo->prepare(
+                "SELECT id, nombre, cod_barras, precio_final, factor_conversion, id_stock, id_asociado, activo
+                 FROM productos
+                 WHERE cod_barras = ? OR TRIM(LEADING '0' FROM cod_barras) = TRIM(LEADING '0' FROM ?)
+                 LIMIT 1"
+            );
+
+            $statement->execute([$codigoNormalizado, $codigoNormalizado]);
+            $fila = $statement->fetch();
+
+            if (is_array($fila)) {
+                $producto = $fila;
+            }
+        }
+
+        return $producto;
+    }
+
+    public function stockExiste(int $idStock): bool
+    {
+        $ok = false;
+
+        if ($idStock > 0) {
+            $statement = $this->pdo->prepare('SELECT id FROM stock WHERE id = ? LIMIT 1');
+            $statement->execute([$idStock]);
+            $fila = $statement->fetch();
+            $ok = is_array($fila) && isset($fila['id']);
+        }
+
+        return $ok;
+    }
+
+    public function obtenerPrecioCostoStock(int $idStock): ?float
+    {
+        $precio = null;
+
+        if ($idStock > 0) {
+            $statement = $this->pdo->prepare('SELECT precio_costo FROM stock WHERE id = ? LIMIT 1');
+            $statement->execute([$idStock]);
+            $fila = $statement->fetch();
+            if (is_array($fila)) {
+                $precio = (float) ($fila['precio_costo'] ?? 0);
+            }
+        }
+
+        return $precio;
+    }
+
+    public function calcularPrecioFinal(float $precioCosto, float $factorConversion, float $ganancia): float
+    {
+        if ($precioCosto < 0) {
+            $precioCosto = 0.0;
+        }
+
+        if ($factorConversion < 0) {
+            $factorConversion = 0.0;
+        }
+
+        if ($ganancia < 0) {
+            $ganancia = 0.0;
+        }
+
+        return ($precioCosto * $factorConversion) * (1 + ($ganancia / 100));
+    }
+
+    public function crear(
+        string $nombre,
+        string $codBarras,
+        ?int $idStock,
+        float $factorConversion,
+        float $ganancia,
+        float $precioFinal,
+        int $activo
+    ): bool {
+        $statement = $this->pdo->prepare(
+            'INSERT INTO productos (nombre, cod_barras, id_stock, id_asociado, factor_conversion, ganancia, precio_final, activo)
+             VALUES (?, ?, ?, NULL, ?, ?, ?, ?)'
+        );
+
+        return $statement->execute([$nombre, $codBarras, $idStock, $factorConversion, $ganancia, $precioFinal, $activo]);
+    }
+
+    public function crearRetornandoId(
+        string $nombre,
+        string $codBarras,
+        ?int $idStock,
+        float $factorConversion,
+        float $ganancia,
+        float $precioFinal,
+        int $activo
+    ): int {
+        $id = 0;
+        $statement = $this->pdo->prepare(
+            'INSERT INTO productos (nombre, cod_barras, id_stock, id_asociado, factor_conversion, ganancia, precio_final, activo)
+             VALUES (?, ?, ?, NULL, ?, ?, ?, ?)'
+        );
+
+        if ($statement->execute([$nombre, $codBarras, $idStock, $factorConversion, $ganancia, $precioFinal, $activo])) {
+            $id = (int) $this->pdo->lastInsertId();
+        }
+
+        return $id;
+    }
+
+    public function actualizar(
+        int $id,
+        string $nombre,
+        string $codBarras,
+        ?int $idStock,
+        float $factorConversion,
+        float $ganancia,
+        float $precioFinal,
+        int $activo
+    ): bool {
+        $statement = $this->pdo->prepare(
+            'UPDATE productos
+             SET nombre = ?, cod_barras = ?, id_stock = ?, id_asociado = NULL, factor_conversion = ?, ganancia = ?, precio_final = ?, activo = ?
+             WHERE id = ?'
+        );
+
+        return $statement->execute([$nombre, $codBarras, $idStock, $factorConversion, $ganancia, $precioFinal, $activo, $id]);
+    }
+
+    public function eliminarNoVendido(): int
+    {
+        return $this->eliminarNoVendidos();
+    }
+
     public function eliminarNoVendidos(): int
     {
         $eliminados = 0;

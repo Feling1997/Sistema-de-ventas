@@ -1,5 +1,4 @@
 <?php
-require_once __DIR__ . "/../modelos/ListaPrecio.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
@@ -17,6 +16,42 @@ class ControladorListasPrecios {
         return true;
     }
 
+    private function listaPrecioDominioAArray(\Ventas\ListasPrecios\Domain\Entidades\ListaPrecio $lista): array {
+        $resultado = [
+            "id" => $lista->id(),
+            "nombre" => $lista->nombre(),
+            "activo" => $lista->activo() ? 1 : 0,
+            "creado_en" => $lista->creadoEn(),
+        ];
+
+        return $resultado;
+    }
+
+    private function listar_listas_precios(bool $solo_activas = true, string $orden_sql = "nombre ASC"): array {
+        global $container;
+
+        $listarListasPrecios = $container->get(\Ventas\ListasPrecios\Application\ListarListasPrecios::class);
+        $esListaCosto = $container->get(\Ventas\ListasPrecios\Application\EsListaCosto::class);
+        $resultado = [];
+
+        foreach ($listarListasPrecios->ejecutar($solo_activas, $orden_sql) as $lista_precio_dominio) {
+            $lista = $this->listaPrecioDominioAArray($lista_precio_dominio);
+            $lista["es_lista_costo"] = $esListaCosto->ejecutar($lista);
+            $resultado[] = $lista;
+        }
+
+        return $resultado;
+    }
+
+    private function es_lista_base(int $id): bool {
+        global $container;
+
+        $esListaBase = $container->get(\Ventas\ListasPrecios\Application\EsListaBase::class);
+        $resultado = $esListaBase->ejecutar($id);
+
+        return $resultado;
+    }
+
     public function index(): void {
         if ($this->permiso()) {
             $orden_listas = orden_parametros([
@@ -25,7 +60,7 @@ class ControladorListasPrecios {
                 "estado" => "activo",
                 "fecha" => "creado_en"
             ], "nombre", "ASC");
-            $listas = ListaPrecio::listar(false, $orden_listas["sql"]);
+            $listas = $this->listar_listas_precios(false, $orden_listas["sql"]);
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/listas_precios/index.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -55,7 +90,7 @@ class ControladorListasPrecios {
                 flash_error("Nombre invalido.");
                 redirigir("index.php?c=listas_precios&a=index");
             }
-            if ($id > 0 && ListaPrecio::es_lista_base_id($id)) {
+            if ($id > 0 && $this->es_lista_base($id)) {
                 $nombre_base = strtolower(trim($nombre));
                 if ($nombre_base !== "costo") {
                     registrar_operacion("listas_precios.guardar.rechazado", [
@@ -79,8 +114,11 @@ class ControladorListasPrecios {
                 "nombre" => $nombre,
                 "activo" => $activo,
             ]);
-            $ok = $id > 0 ? ListaPrecio::actualizar($id, $nombre, $activo) : ListaPrecio::crear($nombre, $activo);
-            $listas = ListaPrecio::listar(false);
+            global $container;
+            $ok = $id > 0
+                ? $container->get(\Ventas\ListasPrecios\Application\ActualizarListaPrecio::class)->ejecutar($id, $nombre, $activo)
+                : $container->get(\Ventas\ListasPrecios\Application\CrearListaPrecio::class)->ejecutar($nombre, $activo);
+            $listas = $this->listar_listas_precios(false);
             registrar_operacion("listas_precios.guardar.resultado", [
                 "ok" => $ok ? "SI" : "NO",
                 "id" => $id,
@@ -101,12 +139,13 @@ class ControladorListasPrecios {
     public function eliminar(): void {
         if ($this->permiso()) {
             $id = (int)obtener_get("id", 0);
-            if (ListaPrecio::es_lista_base_id($id)) {
+            if ($this->es_lista_base($id)) {
                 flash_error("No se puede eliminar la lista Costo.");
                 redirigir("index.php?c=listas_precios&a=index");
                 return;
             }
-            $ok = ListaPrecio::eliminar($id);
+            global $container;
+            $ok = $container->get(\Ventas\ListasPrecios\Application\EliminarListaPrecio::class)->ejecutar($id);
             $ok ? flash_ok("Lista eliminada.") : flash_error("No se pudo eliminar la lista.");
             redirigir("index.php?c=listas_precios&a=index");
         }
@@ -116,7 +155,7 @@ class ControladorListasPrecios {
         if ($this->permiso()) {
             $id_lista = (int)obtener_get("id", 0);
             $formato = strtolower((string)obtener_get("formato", "html"));
-            $listas = ListaPrecio::listar(true);
+            $listas = $this->listar_listas_precios(true);
             $nombre_lista = "";
             foreach ($listas as $lista) {
                 if ((int)$lista["id"] === $id_lista)
@@ -127,7 +166,8 @@ class ControladorListasPrecios {
                 redirigir("index.php?c=exportaciones&a=index");
                 return;
             }
-            $productos = ListaPrecio::productos_para_exportar($id_lista);
+            global $container;
+            $productos = $container->get(\Ventas\ListasPrecios\Application\ListarProductosParaExportar::class)->ejecutar($id_lista);
             $base_archivo = "lista_precios_" . $nombre_lista;
             if ($formato === "csv" || $formato === "xls" || $formato === "excel") {
                 header("Content-Type: text/csv; charset=utf-8");

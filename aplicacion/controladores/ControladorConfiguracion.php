@@ -1,13 +1,114 @@
 <?php
-require_once __DIR__ . "/../modelos/Configuracion.php";
-require_once __DIR__ . "/../modelos/RespaldoSistema.php";
-require_once __DIR__ . "/../modelos/BackblazeB2.php";
-require_once __DIR__ . "/../modelos/Stock.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
 
 class ControladorConfiguracion {
+    private function contenedor_configuracion(): \Ventas\Infraestructura\Contenedor\Container {
+        global $container;
+
+        if (!$container instanceof \Ventas\Infraestructura\Contenedor\Container) {
+            $container = new \Ventas\Infraestructura\Contenedor\Container();
+        }
+
+        if (!$container->has(\Ventas\Configuracion\Application\ObtenerConfiguracionGeneral::class)) {
+            \Ventas\Configuracion\Infrastructure\RegistroConfiguracion::registrar($container);
+        }
+
+        $resultado = $container;
+
+        return $resultado;
+    }
+
+    private function obtener_configuracion_general_modular(): array {
+        $container = $this->contenedor_configuracion();
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\ObtenerConfiguracionGeneral::class);
+        $resultado = $caso_uso->ejecutar();
+
+        return $resultado;
+    }
+
+    private function guardar_configuracion_modular(array $datos): bool {
+        $container = $this->contenedor_configuracion();
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\GuardarConfiguracion::class);
+        $resultado = $caso_uso->ejecutar($datos);
+
+        return $resultado;
+    }
+
+    private function restablecer_grupo_configuracion_modular(string $grupo): bool {
+        $container = $this->contenedor_configuracion();
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\RestablecerGrupoConfiguracion::class);
+        $resultado = $caso_uso->ejecutar($grupo);
+
+        return $resultado;
+    }
+
+    private function guardar_archivo_configuracion_modular(string $campo, string $actual, string $nombre_base): string {
+        $container = $this->contenedor_configuracion();
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\GuardarArchivoConfiguracion::class);
+        $resultado = $caso_uso->ejecutar($campo, $actual, $nombre_base);
+
+        return $resultado;
+    }
+
+    private function procesar_logo_ticket_hd_configuracion_modular(string $ruta_original, int $ancho_ticket, bool $modo_termico = true): string {
+        $container = $this->contenedor_configuracion();
+        $caso_uso = $container->get(\Ventas\Configuracion\Application\ProcesarLogoTicketTermicoHDConfiguracion::class);
+        $resultado = $caso_uso->ejecutar($ruta_original, $ancho_ticket, $modo_termico);
+
+        return $resultado;
+    }
+
+    private function resolver_ruta_proyecto_configuracion(string $ruta): string {
+        $resultado = "";
+
+        if ($ruta !== "") {
+            if (preg_match('/^[a-zA-Z]:[\\\\\\/]/', $ruta) || str_starts_with($ruta, "\\\\")) {
+                $resultado = $ruta;
+            } else {
+                $resultado = __DIR__ . "/../../" . ltrim($ruta, "/\\");
+            }
+        }
+
+        return $resultado;
+    }
+
+    private function ruta_relativa_proyecto_configuracion(string $ruta): string {
+        $base = realpath(__DIR__ . "/../../");
+        $real = realpath($ruta);
+        $resultado = str_replace("\\", "/", ltrim($ruta, "/"));
+
+        if ($base !== false && $real !== false && str_starts_with($real, $base)) {
+            $resultado = ltrim(str_replace("\\", "/", substr($real, strlen($base))), "/");
+        }
+
+        return $resultado;
+    }
+
+    private function contenedor_backups(): \Ventas\Infraestructura\Contenedor\Container {
+        $resultado = new \Ventas\Infraestructura\Contenedor\Container();
+        \Ventas\Backups\Infrastructure\RegistroBackups::registrar($resultado);
+
+        return $resultado;
+    }
+
+    private function generar_respaldo_modular(): array {
+        $container = $this->contenedor_backups();
+        $caso_uso = $container->get(\Ventas\Backups\Application\GenerarRespaldoSistema::class);
+        $resultado = $caso_uso->ejecutar();
+
+        return $resultado;
+    }
+
+    private function copiar_respaldo_modular(string $origen, string $destino): array {
+        $container = $this->contenedor_backups();
+        $caso_uso = $container->get(\Ventas\Backups\Application\CopiarRespaldoLocal::class);
+        $resultado = $caso_uso->ejecutar($origen, $destino);
+
+        return $resultado;
+    }
+
     private function permiso_admin(): bool {
         $ok = false;
         if (!require_login()) {
@@ -51,7 +152,7 @@ class ControladorConfiguracion {
 
     public function index(): void {
         if ($this->permiso_admin()) {
-            $config = Configuracion::obtener_todo();
+            $config = $this->obtener_configuracion_general_modular();
             $secciones = $this->secciones();
             $seccion_actual = $this->seccion_actual();
             $modulos_navbar = menu_modulos_base();
@@ -59,7 +160,18 @@ class ControladorConfiguracion {
             unset($modulos_navbar["configuraciones"]);
             unset($modulos_navbar["usuarios"]);
             $carpeta_respaldos = realpath(__DIR__ . "/../../respaldos") ?: (__DIR__ . "/../../respaldos");
-            $b2_configurado = BackblazeB2::configurado($config);
+            $container = $this->contenedor_backups();
+            $verificador = $container->get(\Ventas\Backups\Application\VerificarBackblazeConfigurado::class);
+            $b2_configurado = $verificador->ejecutar($config);
+            $logo_ticket_preview = "";
+            $logo_ticket_rel = trim((string)($config["logo_ticket"] ?? ""));
+            if ($logo_ticket_rel !== "") {
+                $formato_logo_preview = (string)($config["formato_impresion_ticket"] ?? "80");
+                $logo_ticket_preview = $this->procesar_logo_ticket_hd_configuracion_modular($logo_ticket_rel, $formato_logo_preview === "58" ? 384 : 576, true);
+                $logo_preview_abs = $this->resolver_ruta_proyecto_configuracion($logo_ticket_preview);
+                if ($logo_preview_abs !== "" && is_file($logo_preview_abs))
+                    $logo_ticket_preview .= "?v=" . (string)filemtime($logo_preview_abs);
+            }
             include __DIR__ . "/../vistas/parciales/encabezado.php";
             include __DIR__ . "/../vistas/configuracion/index.php";
             include __DIR__ . "/../vistas/parciales/pie.php";
@@ -75,20 +187,20 @@ class ControladorConfiguracion {
             elseif (!csrf_valido(obtener_post("csrf", "")))
                 $error = "Token invalido. Recarga la pagina.";
             if ($error === "") {
-                $actual = Configuracion::obtener_todo();
+                $actual = $this->obtener_configuracion_general_modular();
                 $datos = $_POST["config"] ?? [];
                 if (!is_array($datos))
                     $datos = [];
                 $datos = $this->completar_booleanos($seccion, $datos);
                 if ($seccion === "apariencia") {
-                    $datos["logo"] = Configuracion::guardar_archivo("logo_archivo", (string)($actual["logo"] ?? ""), "logo_sistema");
-                    $datos["favicon"] = Configuracion::guardar_archivo("favicon_archivo", (string)($actual["favicon"] ?? ""), "favicon_sistema");
-                    $datos["imagen_panel"] = Configuracion::guardar_archivo("imagen_panel_archivo", (string)($actual["imagen_panel"] ?? ""), "panel_fondo");
+                    $datos["logo"] = $this->guardar_archivo_configuracion_modular("logo_archivo", (string)($actual["logo"] ?? ""), "logo_sistema");
+                    $datos["favicon"] = $this->guardar_archivo_configuracion_modular("favicon_archivo", (string)($actual["favicon"] ?? ""), "favicon_sistema");
+                    $datos["imagen_panel"] = $this->guardar_archivo_configuracion_modular("imagen_panel_archivo", (string)($actual["imagen_panel"] ?? ""), "panel_fondo");
                 }
                 if ($seccion === "comercio")
-                    $datos["logo_ticket"] = Configuracion::guardar_archivo("logo_ticket_archivo", (string)($actual["logo_ticket"] ?? ""), "ticket_logo");
+                    $datos["logo_ticket"] = $this->guardar_archivo_configuracion_modular("logo_ticket_archivo", (string)($actual["logo_ticket"] ?? ""), "ticket_logo");
                 if ($seccion === "impresion")
-                    $datos["logo_ticket"] = Configuracion::guardar_archivo("logo_ticket_archivo", (string)($actual["logo_ticket"] ?? ""), "ticket_logo");
+                    $datos["logo_ticket"] = $this->guardar_archivo_configuracion_modular("logo_ticket_archivo", (string)($actual["logo_ticket"] ?? ""), "ticket_logo");
                 if ($seccion === "menu")
                     $datos = $this->normalizar_menu_post($datos);
                 if ($seccion === "backup" && trim((string)($datos["backup_b2_application_key"] ?? "")) === "")
@@ -99,10 +211,13 @@ class ControladorConfiguracion {
                     "campos" => array_keys($datos),
                     "valores" => $datos,
                 ]);
-                $ok_guardado = Configuracion::guardar($datos);
-                if ($ok_guardado && $seccion === "productos" && array_key_exists("productos_cotizacion_dolar", $datos))
-                    Stock::recalcular_costos_por_cotizacion();
-                $verificacion = Configuracion::obtener_todo();
+                $ok_guardado = $this->guardar_configuracion_modular($datos);
+                if ($ok_guardado && $seccion === "productos" && array_key_exists("productos_cotizacion_dolar", $datos)) {
+                    global $container;
+                    $recalcularCostosPorCotizacion = $container->get(\Ventas\Stock\Application\RecalcularCostosPorCotizacion::class);
+                    $recalcularCostosPorCotizacion->ejecutar();
+                }
+                $verificacion = $this->obtener_configuracion_general_modular();
                 $verificados = [];
                 foreach ($datos as $clave => $valor)
                     $verificados[$clave] = $verificacion[$clave] ?? null;
@@ -133,7 +248,7 @@ class ControladorConfiguracion {
             if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
                 flash_error("Acceso invalido.");
             } else {
-                if (Configuracion::restablecer_grupo($seccion))
+                if ($this->restablecer_grupo_configuracion_modular($seccion))
                     flash_ok("Seccion restablecida.");
                 else
                     flash_error("No se pudo restablecer la seccion.");
@@ -166,8 +281,8 @@ class ControladorConfiguracion {
                         @mkdir($carpeta_tmp, 0777, true);
                     $tmp_copia = $carpeta_tmp . "/preview_logo_original." . $ext;
                     if (@copy($tmp, $tmp_copia)) {
-                        $ruta = $modo_termico ? procesar_logo_ticket_termico_hd($tmp_copia, $formato === "58" ? 384 : 576, true) : ruta_relativa_proyecto($tmp_copia);
-                        $png = resolver_ruta_proyecto($ruta);
+                        $ruta = $modo_termico ? $this->procesar_logo_ticket_hd_configuracion_modular($tmp_copia, $formato === "58" ? 384 : 576, true) : $this->ruta_relativa_proyecto_configuracion($tmp_copia);
+                        $png = $this->resolver_ruta_proyecto_configuracion($ruta);
                         $bytes = is_file($png) ? @file_get_contents($png) : false;
                         if (is_string($bytes) && $bytes !== "") {
                             $respuesta["ok"] = true;
@@ -184,7 +299,7 @@ class ControladorConfiguracion {
 
     public function logo_ticket_actual(): void {
         if ($this->permiso_admin()) {
-            $config = Configuracion::obtener_todo();
+            $config = $this->obtener_configuracion_general_modular();
             $logo_rel = trim((string)($config["logo_ticket"] ?? ""));
             $base = realpath(__DIR__ . "/../../");
             $logo_path = $logo_rel !== "" ? realpath(__DIR__ . "/../../" . $logo_rel) : false;
@@ -196,8 +311,8 @@ class ControladorConfiguracion {
             $formato_get = trim((string)obtener_get("formato", ""));
             $modo_termico = $modo_get !== "" ? $modo_get === "1" : (string)($config["ticket_logo_termico"] ?? "1") === "1";
             $formato = in_array($formato_get, ["58", "80"], true) ? $formato_get : (string)($config["formato_impresion_ticket"] ?? "80");
-            $ruta_logo = $modo_termico ? procesar_logo_ticket_termico_hd($logo_path, $formato === "58" ? 384 : 576, true) : ruta_relativa_proyecto($logo_path);
-            $archivo_logo = resolver_ruta_proyecto($ruta_logo);
+            $ruta_logo = $modo_termico ? $this->procesar_logo_ticket_hd_configuracion_modular($logo_path, $formato === "58" ? 384 : 576, true) : $this->ruta_relativa_proyecto_configuracion($logo_path);
+            $archivo_logo = $this->resolver_ruta_proyecto_configuracion($ruta_logo);
             if (!is_file($archivo_logo)) {
                 http_response_code(500);
                 return;
@@ -227,7 +342,7 @@ class ControladorConfiguracion {
                     if (!is_string($bytes) || $bytes === "") {
                         $respuesta["error"] = "No se pudo decodificar la imagen.";
                     } else {
-                        $config = Configuracion::obtener_todo();
+                        $config = $this->obtener_configuracion_general_modular();
                         $logo_rel = trim((string)($config["logo_ticket"] ?? "ticket_logo"));
                         $base_nombre = pathinfo($logo_rel, PATHINFO_FILENAME);
                         $base_nombre = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $base_nombre) ?: "ticket_logo";
@@ -238,7 +353,7 @@ class ControladorConfiguracion {
                         if (@file_put_contents($destino, $bytes) !== false) {
                             @file_put_contents($destino . ".ok", "canvas-hd");
                             $respuesta["ok"] = true;
-                            $respuesta["ruta"] = ruta_relativa_proyecto($destino);
+                            $respuesta["ruta"] = $this->ruta_relativa_proyecto_configuracion($destino);
                         } else
                             $respuesta["error"] = "No se pudo guardar la imagen procesada.";
                     }
@@ -293,10 +408,10 @@ class ControladorConfiguracion {
                 return;
             }
             registrar_log("Backup", "POST recibido descarga PC");
-            $respaldo = RespaldoSistema::generar();
+            $respaldo = $this->generar_respaldo_modular();
             if (empty($respaldo["ok"])) {
                 $mensaje = (string)($respaldo["mensaje"] ?? "No se pudo generar el respaldo.");
-                Configuracion::guardar(["backup_ultimo_estado" => "error", "backup_ultimo_error" => $mensaje]);
+                $this->guardar_configuracion_modular(["backup_ultimo_estado" => "error", "backup_ultimo_error" => $mensaje]);
                 registrar_log("Backup", $mensaje);
                 http_response_code(500);
                 header("Content-Type: text/plain; charset=utf-8");
@@ -305,7 +420,7 @@ class ControladorConfiguracion {
             }
             $ruta = (string)($respaldo["ruta"] ?? "");
             $nombre = basename((string)($respaldo["nombre"] ?? $ruta));
-            Configuracion::guardar([
+            $this->guardar_configuracion_modular([
                 "backup_ultimo" => date("Y-m-d H:i:s"),
                 "backup_ultimo_estado" => "ok",
                 "backup_ultimo_error" => "",
@@ -327,7 +442,7 @@ class ControladorConfiguracion {
             if ($_SERVER["REQUEST_METHOD"] !== "POST" || !csrf_valido(obtener_post("csrf", ""))) {
                 $respuesta["mensaje"] = "Solicitud invalida. Recarga la pagina.";
             } else {
-                $config = Configuracion::obtener_todo();
+                $config = $this->obtener_configuracion_general_modular();
                 $hoy = date("Y-m-d");
                 $ultimo_auto = (string)($config["backup_auto_ultimo_dia"] ?? "");
                 $frecuencia = (string)($config["backup_frecuencia"] ?? "diario");
@@ -349,11 +464,11 @@ class ControladorConfiguracion {
                         $destinos[] = "backblaze";
                     if (count($destinos) === 0) {
                         $respuesta = ["ok" => true, "mensaje" => "Backup local realizado desde el navegador."];
-                        Configuracion::guardar(["backup_auto_ultimo_dia" => $hoy]);
+                        $this->guardar_configuracion_modular(["backup_auto_ultimo_dia" => $hoy]);
                     } else {
                         $resultado = $this->ejecutar_respaldo_destinos($destinos, "");
                         if ($resultado["ok"])
-                            Configuracion::guardar(["backup_auto_ultimo_dia" => $hoy]);
+                            $this->guardar_configuracion_modular(["backup_auto_ultimo_dia" => $hoy]);
                         $respuesta = $resultado;
                     }
                 }
@@ -369,11 +484,11 @@ class ControladorConfiguracion {
             return ["ok" => false, "mensaje" => "Elegí al menos un destino para el backup."];
 
         registrar_log("Backup", "POST recibido");
-        $config = Configuracion::obtener_todo();
-        $respaldo = RespaldoSistema::generar();
+        $config = $this->obtener_configuracion_general_modular();
+        $respaldo = $this->generar_respaldo_modular();
         if (empty($respaldo["ok"])) {
             $mensaje = (string)($respaldo["mensaje"] ?? "No se pudo generar el respaldo.");
-            Configuracion::guardar(["backup_ultimo_estado" => "error", "backup_ultimo_error" => $mensaje]);
+            $this->guardar_configuracion_modular(["backup_ultimo_estado" => "error", "backup_ultimo_error" => $mensaje]);
             registrar_log("Backup", $mensaje);
             return ["ok" => false, "mensaje" => $mensaje];
         }
@@ -381,11 +496,11 @@ class ControladorConfiguracion {
         $ruta = (string)($respaldo["ruta"] ?? "");
         $ok = [];
         $errores = [];
-        foreach ($destinos as $destino) {
+            foreach ($destinos as $destino) {
             if ($destino === "interno") {
                 $ok[] = "carpeta interna: " . basename($ruta);
             } elseif ($destino === "carpeta") {
-                $copia = RespaldoSistema::copiarA($ruta, $carpeta_manual);
+                $copia = $this->copiar_respaldo_modular($ruta, $carpeta_manual);
                 if (!empty($copia["ok"]))
                     $ok[] = "carpeta elegida: " . (string)($copia["ruta"] ?? "");
                 else
@@ -395,14 +510,16 @@ class ControladorConfiguracion {
                 if ((string)($config["backup_local_habilitado"] ?? "0") !== "1")
                     $errores[] = "copia local: destino local desactivado.";
                 else {
-                    $copia = RespaldoSistema::copiarA($ruta, $carpeta_config);
+                    $copia = $this->copiar_respaldo_modular($ruta, $carpeta_config);
                     if (!empty($copia["ok"]))
                         $ok[] = "copia local: " . (string)($copia["ruta"] ?? "");
                     else
                         $errores[] = "copia local: " . (string)($copia["mensaje"] ?? "No se pudo copiar.");
                 }
             } elseif ($destino === "backblaze") {
-                $subida = BackblazeB2::subir($ruta, $config);
+                $container = $this->contenedor_backups();
+                $casoSubida = $container->get(\Ventas\Backups\Application\SubirRespaldoBackblaze::class);
+                $subida = $casoSubida->ejecutar($ruta, $config);
                 if (!empty($subida["ok"]))
                     $ok[] = "Backblaze B2: " . (string)($subida["fileName"] ?? "subido");
                 else
@@ -414,7 +531,7 @@ class ControladorConfiguracion {
         $mensaje_ok = count($ok) > 0 ? "Backup realizado en " . implode(" | ", $ok) . "." : "";
         $mensaje_error = count($errores) > 0 ? "Errores: " . implode(" | ", $errores) : "";
         $mensaje = trim($mensaje_ok . " " . $mensaje_error);
-        Configuracion::guardar([
+        $this->guardar_configuracion_modular([
             "backup_ultimo" => date("Y-m-d H:i:s"),
             "backup_ultimo_estado" => $estado,
             "backup_ultimo_error" => count($errores) > 0 ? implode(" | ", $errores) : "",

@@ -13,9 +13,9 @@ use Ventas\Auth\Application\ObtenerSesionActual;
 use Ventas\Auth\Application\VerificarModoSinLogin;
 use Ventas\Auth\Domain\Repositorios\ConfiguracionAuthRepository;
 use Ventas\Auth\Domain\Repositorios\SesionAuthRepository;
-use Ventas\Infraestructura\Configuracion\DatabaseConfig;
-use Ventas\Infraestructura\Contenedor\Container;
-use Ventas\Infraestructura\Persistencia\MySQL\PdoConnectionFactory;
+use Ventas\Core\Infrastructure\Config\DatabaseConfig;
+use Ventas\Core\Infrastructure\Container\Container;
+use Ventas\Core\Infrastructure\Persistence\Mysql\PdoConnectionFactory;
 use Ventas\Usuarios\Domain\Repositorios\UsuarioRepository;
 use Ventas\Usuarios\Infrastructure\MySQLUsuarioRepository;
 

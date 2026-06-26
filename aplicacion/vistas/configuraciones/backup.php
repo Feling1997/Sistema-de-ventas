@@ -24,7 +24,7 @@ $carpeta_b2 = trim((string)($config["backup_b2_carpeta"] ?? "ventas-reparaciones
           </div>
           <div>
             <h4 class="mb-1">Generar respaldo ahora</h4>
-            <div class="text-muted small">El archivo incluye todas las tablas MySQL de Ventas y la base SQLite de Reparaciones.</div>
+            <div class="text-muted small">El archivo incluye las tablas MariaDB de Ventas, Core y Reparaciones.</div>
           </div>
         </div>
 

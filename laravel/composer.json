@@ -1,0 +1,184 @@
+{
+    "$schema":  "https://getcomposer.org/schema.json",
+    "name":  "laravel/laravel",
+    "type":  "project",
+    "description":  "The skeleton application for the Laravel framework.",
+    "keywords":  [
+                     "laravel",
+                     "framework"
+                 ],
+    "license":  "MIT",
+    "require":  {
+                    "php":  "^8.3",
+                    "laravel/framework":  "^13.8",
+                    "laravel/tinker":  "^3.0"
+                },
+    "require-dev":  {
+                        "fakerphp/faker":  "^1.23",
+                        "laravel/pail":  "^1.2.5",
+                        "laravel/pao":  "^1.0.6",
+                        "laravel/pint":  "^1.27",
+                        "mockery/mockery":  "^1.6",
+                        "nunomaduro/collision":  "^8.6",
+                        "phpunit/phpunit":  "^12.5.12"
+                    },
+    "autoload":  {
+                     "psr-4":  {
+                                   "App\\":  "app/",
+                                   "Ventas\\Auth\\Application\\":  "../src/auth/application/",
+                                   "Ventas\\Auth\\Domain\\Repositorios\\":  "../src/auth/domain/repositorios/",
+                                   "Ventas\\Auth\\Infrastructure\\":  "../src/auth/infrastructure/",
+                                   "Ventas\\Backups\\Application\\":  "../src/backups/application/",
+                                   "Ventas\\Backups\\Domain\\Repositorios\\":  "../src/backups/domain/repositorios/",
+                                   "Ventas\\Backups\\Infrastructure\\":  "../src/backups/infrastructure/",
+                                   "Ventas\\Clientes\\Application\\":  "../src/clientes/application/",
+                                   "Ventas\\Clientes\\Domain\\Entidades\\":  "../src/clientes/domain/entidades/",
+                                   "Ventas\\Clientes\\Domain\\Excepciones\\":  "../src/clientes/domain/excepciones/",
+                                   "Ventas\\Clientes\\Domain\\Repositorios\\":  "../src/clientes/domain/repositorios/",
+                                   "Ventas\\Clientes\\Infrastructure\\":  "../src/clientes/infrastructure/",
+                                   "Ventas\\Configuracion\\Application\\":  "../src/configuracion/application/",
+                                   "Ventas\\Configuracion\\Domain\\Repositorios\\":  "../src/configuracion/domain/repositorios/",
+                                   "Ventas\\Configuracion\\Infrastructure\\":  "../src/configuracion/infrastructure/",
+                                   "Ventas\\Core\\Auditoria\\Domain\\Repositorios\\":  "../src/core/auditoria/domain/repositorios/",
+                                   "Ventas\\Core\\Configuraciones\\Domain\\Repositorios\\":  "../src/core/configuraciones/domain/repositorios/",
+                                   "Ventas\\Core\\Contactos\\Application\\":  "../src/core/contactos/application/",
+                                   "Ventas\\Core\\Contactos\\Domain\\Entidades\\":  "../src/core/contactos/domain/entidades/",
+                                   "Ventas\\Core\\Contactos\\Domain\\Repositorios\\":  "../src/core/contactos/domain/repositorios/",
+                                   "Ventas\\Core\\Contactos\\Infrastructure\\Models\\":  "../src/core/contactos/infrastructure/models/",
+                                   "Ventas\\Core\\Contactos\\Infrastructure\\Repositories\\":  "../src/core/contactos/infrastructure/repositories/",
+                                   "Ventas\\Core\\Domain\\Repositories\\":  "../src/core/domain/repositories/",
+                                   "Ventas\\Core\\Infrastructure\\Config\\":  "../src/core/infrastructure/config/",
+                                   "Ventas\\Core\\Infrastructure\\Container\\":  "../src/core/infrastructure/container/",
+                                   "Ventas\\Core\\Infrastructure\\Persistence\\Mysql\\":  "../src/core/infrastructure/persistence/mysql/",
+                                   "Ventas\\Core\\Permisos\\Domain\\Repositorios\\":  "../src/core/permisos/domain/repositorios/",
+                                   "Ventas\\Core\\Preferencias\\Domain\\Repositorios\\":  "../src/core/preferencias/domain/repositorios/",
+                                   "Ventas\\Core\\Roles\\Domain\\Repositorios\\":  "../src/core/roles/domain/repositorios/",
+                                   "Ventas\\Core\\Sesiones\\Domain\\Repositorios\\":  "../src/core/sesiones/domain/repositorios/",
+                                   "Ventas\\Core\\Sesiones\\Infrastructure\\":  "../src/core/sesiones/infrastructure/",
+                                   "Ventas\\Core\\Usuarios\\Domain\\Repositorios\\":  "../src/core/usuarios/domain/repositorios/",
+                                   "Ventas\\CuentasCorrientes\\Application\\":  "../src/cuentascorrientes/application/",
+                                   "Ventas\\CuentasCorrientes\\Domain\\Repositorios\\":  "../src/cuentascorrientes/domain/repositorios/",
+                                   "Ventas\\CuentasCorrientes\\Infrastructure\\":  "../src/cuentascorrientes/infrastructure/",
+                                   "Ventas\\Importacion\\Application\\":  "../src/importacion/application/",
+                                   "Ventas\\Importacion\\Domain\\Repositorios\\":  "../src/importacion/domain/repositorios/",
+                                   "Ventas\\Importacion\\Infrastructure\\":  "../src/importacion/infrastructure/",
+                                   "Ventas\\Impresoras\\Application\\":  "../src/impresoras/application/",
+                                   "Ventas\\Impresoras\\Domain\\Repositorios\\":  "../src/impresoras/domain/repositorios/",
+                                   "Ventas\\Impresoras\\Infrastructure\\":  "../src/impresoras/infrastructure/",
+                                   "Ventas\\Instalacion\\Application\\":  "../src/instalacion/application/",
+                                   "Ventas\\ListasPrecios\\Application\\":  "../src/listas-precios/application/",
+                                   "Ventas\\ListasPrecios\\Domain\\Entidades\\":  "../src/listas-precios/domain/entidades/",
+                                   "Ventas\\ListasPrecios\\Domain\\Repositorios\\":  "../src/listas-precios/domain/repositorios/",
+                                   "Ventas\\ListasPrecios\\Infrastructure\\":  "../src/listas-precios/infrastructure/",
+                                   "Ventas\\Precios\\Application\\":  "../src/precios/application/",
+                                   "Ventas\\Precios\\Domain\\Repositorios\\":  "../src/precios/domain/repositorios/",
+                                   "Ventas\\Precios\\Infrastructure\\":  "../src/precios/infrastructure/",
+                                   "Ventas\\Presupuestos\\Application\\":  "../src/presupuestos/application/",
+                                   "Ventas\\Presupuestos\\Domain\\Entidades\\":  "../src/presupuestos/domain/entidades/",
+                                   "Ventas\\Presupuestos\\Domain\\Repositorios\\":  "../src/presupuestos/domain/repositorios/",
+                                   "Ventas\\Presupuestos\\Infrastructure\\":  "../src/presupuestos/infrastructure/",
+                                   "Ventas\\Productos\\Application\\":  "../src/productos/application/",
+                                   "Ventas\\Productos\\Domain\\Entidades\\":  "../src/productos/domain/entidades/",
+                                   "Ventas\\Productos\\Domain\\Repositorios\\":  "../src/productos/domain/repositorios/",
+                                   "Ventas\\Productos\\Infrastructure\\":  "../src/productos/infrastructure/",
+                                   "Ventas\\Reparaciones\\Application\\":  "../src/reparaciones/application/",
+                                   "Ventas\\Reparaciones\\Domain\\Entidades\\":  "../src/reparaciones/domain/entidades/",
+                                   "Ventas\\Reparaciones\\Domain\\Repositorios\\":  "../src/reparaciones/domain/repositorios/",
+                                   "Ventas\\Reparaciones\\Infrastructure\\Models\\":  "../src/reparaciones/infrastructure/models/",
+                                   "Ventas\\Reparaciones\\Infrastructure\\Repositories\\":  "../src/reparaciones/infrastructure/repositories/",
+                                   "Ventas\\Sistema\\Application\\":  "../src/sistema/application/",
+                                   "Ventas\\Stock\\Application\\":  "../src/stock/application/",
+                                   "Ventas\\Stock\\Domain\\Entidades\\":  "../src/stock/domain/entidades/",
+                                   "Ventas\\Stock\\Domain\\Repositorios\\":  "../src/stock/domain/repositorios/",
+                                   "Ventas\\Stock\\Infrastructure\\":  "../src/stock/infrastructure/",
+                                   "Ventas\\UnidadesMedida\\Application\\":  "../src/unidades-medida/application/",
+                                   "Ventas\\UnidadesMedida\\Domain\\Entidades\\":  "../src/unidades-medida/domain/entidades/",
+                                   "Ventas\\UnidadesMedida\\Domain\\Repositorios\\":  "../src/unidades-medida/domain/repositorios/",
+                                   "Ventas\\UnidadesMedida\\Infrastructure\\":  "../src/unidades-medida/infrastructure/",
+                                   "Ventas\\Usuarios\\Application\\":  "../src/usuarios/application/",
+                                   "Ventas\\Usuarios\\Domain\\Entidades\\":  "../src/usuarios/domain/entidades/",
+                                   "Ventas\\Usuarios\\Domain\\Excepciones\\":  "../src/usuarios/domain/excepciones/",
+                                   "Ventas\\Usuarios\\Domain\\Repositorios\\":  "../src/usuarios/domain/repositorios/",
+                                   "Ventas\\Usuarios\\Infrastructure\\":  "../src/usuarios/infrastructure/",
+                                   "Ventas\\Ventas\\Application\\":  "../src/ventas/application/",
+                                   "Ventas\\Ventas\\Application\\NuevaVenta\\":  "../src/ventas/application/nuevaventa/",
+                                   "Ventas\\Ventas\\Domain\\Entidades\\":  "../src/ventas/domain/entidades/",
+                                   "Ventas\\Ventas\\Domain\\NuevaVenta\\Repositorios\\":  "../src/ventas/domain/nuevaventa/repositorios/",
+                                   "Ventas\\Ventas\\Domain\\Repositorios\\":  "../src/ventas/domain/repositorios/",
+                                   "Ventas\\Ventas\\Infrastructure\\":  "../src/ventas/infrastructure/",
+                                   "Ventas\\Ventas\\Infrastructure\\NuevaVenta\\":  "../src/ventas/infrastructure/nuevaventa/",
+                                   "Database\\Factories\\":  "database/factories/",
+                                   "Database\\Seeders\\":  "database/seeders/",
+                                   "Ventas\\Core\\Permisos\\Application\\":  "../src/core/permisos/application/",
+                                   "Ventas\\Core\\Permisos\\Domain\\Entidades\\":  "../src/core/permisos/domain/entidades/",
+                                   "Ventas\\Core\\Permisos\\Infrastructure\\Models\\":  "../src/core/permisos/infrastructure/models/",
+                                   "Ventas\\Core\\Permisos\\Infrastructure\\Repositories\\":  "../src/core/permisos/infrastructure/repositories/",
+                                   "Ventas\\Core\\Roles\\Application\\":  "../src/core/roles/application/",
+                                   "Ventas\\Core\\Roles\\Domain\\Entidades\\":  "../src/core/roles/domain/entidades/",
+                                   "Ventas\\Core\\Roles\\Infrastructure\\Models\\":  "../src/core/roles/infrastructure/models/",
+                                   "Ventas\\Core\\Roles\\Infrastructure\\Repositories\\":  "../src/core/roles/infrastructure/repositories/",
+                                   "Ventas\\Core\\Usuarios\\Application\\":  "../src/core/usuarios/application/",
+                                   "Ventas\\Core\\Usuarios\\Domain\\Entidades\\":  "../src/core/usuarios/domain/entidades/",
+                                   "Ventas\\Core\\Usuarios\\Infrastructure\\Models\\":  "../src/core/usuarios/infrastructure/models/",
+                                   "Ventas\\Core\\Usuarios\\Infrastructure\\Repositories\\":  "../src/core/usuarios/infrastructure/repositories/"
+                               }
+                 },
+    "autoload-dev":  {
+                         "psr-4":  {
+                                       "Tests\\":  "tests/"
+                                   }
+                     },
+    "scripts":  {
+                    "setup":  [
+                                  "composer install",
+                                  "@php -r \"file_exists(\u0027.env\u0027) || copy(\u0027.env.example\u0027, \u0027.env\u0027);\"",
+                                  "@php artisan key:generate",
+                                  "@php artisan migrate --force",
+                                  "npm install --ignore-scripts",
+                                  "npm run build"
+                              ],
+                    "dev":  [
+                                "Composer\\Config::disableProcessTimeout",
+                                "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1 --timeout=0\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite --kill-others"
+                            ],
+                    "test":  [
+                                 "@php artisan config:clear --ansi @no_additional_args",
+                                 "@php artisan test"
+                             ],
+                    "post-autoload-dump":  [
+                                               "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+                                               "@php artisan package:discover --ansi"
+                                           ],
+                    "post-update-cmd":  [
+                                            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+                                        ],
+                    "post-root-package-install":  [
+                                                      "@php -r \"file_exists(\u0027.env\u0027) || copy(\u0027.env.example\u0027, \u0027.env\u0027);\""
+                                                  ],
+                    "post-create-project-cmd":  [
+                                                    "@php artisan key:generate --ansi",
+                                                    "@php artisan migrate --graceful --ansi"
+                                                ],
+                    "pre-package-uninstall":  [
+                                                  "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
+                                              ]
+                },
+    "extra":  {
+                  "laravel":  {
+                                  "dont-discover":  [
+
+                                                    ]
+                              }
+              },
+    "config":  {
+                   "optimize-autoloader":  true,
+                   "preferred-install":  "dist",
+                   "sort-packages":  true,
+                   "allow-plugins":  {
+                                         "pestphp/pest-plugin":  true,
+                                         "php-http/discovery":  true
+                                     }
+               },
+    "minimum-stability":  "stable",
+    "prefer-stable":  true
+}

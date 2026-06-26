@@ -6,7 +6,7 @@ namespace Ventas\Impresoras\Infrastructure;
 
 use Ventas\Impresoras\Application\ListarImpresoras;
 use Ventas\Impresoras\Domain\Repositorios\ImpresoraRepository;
-use Ventas\Infraestructura\Contenedor\Container;
+use Ventas\Core\Infrastructure\Container\Container;
 
 final class RegistroImpresoras
 {

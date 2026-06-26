@@ -48,7 +48,6 @@ $mapa=[
   "exportaciones" => ["archivo" => __DIR__ . "/../aplicacion/controladores/ControladorExportaciones.php", "clase" => "ControladorExportaciones"],
   "cuentas_corrientes" => ["archivo" => __DIR__ . "/../aplicacion/controladores/ControladorCuentasCorrientes.php", "clase" => "ControladorCuentasCorrientes"],
   "ventas" => ["archivo" => __DIR__ . "/../aplicacion/controladores/ControladorVentas.php", "clase" => "ControladorVentas"],
-  "reparaciones" => ["archivo" => __DIR__ . "/../aplicacion/controladores/ControladorReparaciones.php", "clase" => "ControladorReparaciones"],
   "configuracion" => ["archivo" => __DIR__ . "/../aplicacion/controladores/ControladorConfiguracion.php", "clase" => "ControladorConfiguracion"],
   "configuraciones" => ["archivo" => __DIR__ . "/../aplicacion/controladores/ControladorConfiguraciones.php", "clase" => "ControladorConfiguraciones"],
 ];
@@ -75,6 +74,10 @@ if ($c !== "auth" && $modulo_actual !== "" && esta_logueado() && !usuario_puede_
     $destino = usuario_puede_modulo("ventas") ? "index.php?c=ventas&a=inicio" : (usuario_puede_modulo("nueva_venta") ? "index.php?c=ventas&a=nueva" : "index.php?c=auth&a=salir");
     redirigir($destino);
     exit;
+}
+if ($c === "reparaciones") {
+    header("Location: /Sistema-de-ventas/laravel/public/reparaciones");
+    return;
 }
 $archivo="";
 $clase="";

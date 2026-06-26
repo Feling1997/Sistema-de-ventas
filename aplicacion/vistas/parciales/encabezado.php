@@ -51,6 +51,27 @@ if ($logo_sistema_visual !== "") {
   }
 }
 $backup_automatico_visual = rol_actual() === "ADMIN" ? (string)($config_visual["backup_automatico"] ?? "0") : "0";
+$cantidad_cuentas_vencidas_no_leidas = 0;
+if (isset($_SESSION["usuario_logueado"])) {
+  $id_usuario_alertas = (int)($_SESSION["usuario_logueado"]["id"] ?? 0);
+  $cache_alertas_menu = $_SESSION["menu_alertas_cache"] ?? [];
+  $cache_alertas_key = "u" . $id_usuario_alertas;
+  $cache_alertas_valido = is_array($cache_alertas_menu)
+    && isset($cache_alertas_menu[$cache_alertas_key])
+    && is_array($cache_alertas_menu[$cache_alertas_key])
+    && (time() - (int)($cache_alertas_menu[$cache_alertas_key]["ts"] ?? 0)) < 45;
+  if ($cache_alertas_valido) {
+    $cantidad_cuentas_vencidas_no_leidas = (int)($cache_alertas_menu[$cache_alertas_key]["cc"] ?? 0);
+  } else {
+    global $container;
+    if (isset($container)) {
+      if (!$container->has(\Ventas\CuentasCorrientes\Application\ObtenerCantidadVencidasNoLeidas::class)) {
+        \Ventas\CuentasCorrientes\Infrastructure\RegistroCuentasCorrientes::registrar($container);
+      }
+      $cantidad_cuentas_vencidas_no_leidas = $container->get(\Ventas\CuentasCorrientes\Application\ObtenerCantidadVencidasNoLeidas::class)->ejecutar($id_usuario_alertas);
+    }
+  }
+}
 $css_path = __DIR__ . "/../../../publico/assets/css/app.css";
 $css_version = is_file($css_path) ? (string)filemtime($css_path) : "1";
 ?>

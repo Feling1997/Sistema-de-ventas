@@ -1,6 +1,4 @@
 <?php
-require_once __DIR__ . "/../../modelos/CuentaCorriente.php";
-require_once __DIR__ . "/../../modelos/Stock.php";
 
 $logueado = false;
 $usuario = "";
@@ -13,8 +11,8 @@ $controlador_actual = (string)($_GET["c"] ?? "");
 $accion_actual = (string)($_GET["a"] ?? "");
 $seccion_param = (string)($_GET["seccion"] ?? "");
 $seccion_actual = ($controlador_actual === "reparaciones" || ($controlador_actual === "configuraciones" && $seccion_param === "reparaciones")) ? "reparaciones" : "ventas";
-$url_panel_principal = $seccion_actual === "reparaciones" ? "index.php?c=reparaciones&a=index" : "index.php?c=ventas&a=inicio";
-$url_cambio_modulo = $seccion_actual === "reparaciones" ? "index.php?c=ventas&a=inicio" : "index.php?c=reparaciones&a=index";
+$url_panel_principal = $seccion_actual === "reparaciones" ? "/Sistema-de-ventas/laravel/public/reparaciones" : "index.php?c=ventas&a=inicio";
+$url_cambio_modulo = $seccion_actual === "reparaciones" ? "index.php?c=ventas&a=inicio" : "/Sistema-de-ventas/laravel/public/reparaciones";
 $texto_cambio_modulo = $seccion_actual === "reparaciones" ? "Ventas" : "Reparaciones";
 $icono_cambio_modulo = $seccion_actual === "reparaciones" ? "bi-cash-stack" : "bi-tools";
 $es_panel_aparte = $es_panel_aparte ?? false;
@@ -37,8 +35,8 @@ if ($es_configuracion && $configuracion_separada)
     $seccion_actual = "configuracion";
 else
     $seccion_actual = ($controlador_actual === "reparaciones" || ($controlador_actual === "configuraciones" && $seccion_param === "reparaciones")) ? "reparaciones" : "ventas";
-$url_panel_principal = $seccion_actual === "reparaciones" ? "index.php?c=reparaciones&a=index" : ($seccion_actual === "configuracion" ? "index.php?c=configuracion&a=index" : "index.php?c=ventas&a=inicio");
-$url_cambio_modulo = $seccion_actual === "reparaciones" ? "index.php?c=ventas&a=inicio" : "index.php?c=reparaciones&a=index";
+$url_panel_principal = $seccion_actual === "reparaciones" ? "/Sistema-de-ventas/laravel/public/reparaciones" : ($seccion_actual === "configuracion" ? "index.php?c=configuracion&a=index" : "index.php?c=ventas&a=inicio");
+$url_cambio_modulo = $seccion_actual === "reparaciones" ? "index.php?c=ventas&a=inicio" : "/Sistema-de-ventas/laravel/public/reparaciones";
 $texto_cambio_modulo = $seccion_actual === "reparaciones" ? "Ventas" : "Reparaciones";
 $icono_cambio_modulo = $seccion_actual === "reparaciones" ? "bi-cash-stack" : "bi-tools";
 $cc_alertas_no_leidas = 0;
@@ -66,8 +64,10 @@ if (isset($_SESSION["usuario_logueado"])) {
                 "leidas" => (int)($stock_cache["leidas"] ?? 0)
             ];
     } else {
-        $cc_alertas_no_leidas = CuentaCorriente::cantidad_vencidas_no_leidas($id_usuario);
-        $stock_alertas_resumen = Stock::resumen_alertas_stock_bajo($id_usuario);
+        $cc_alertas_no_leidas = (int)($cantidad_cuentas_vencidas_no_leidas ?? 0);
+        global $container;
+        $resumenAlertasStockBajo = $container->get(\Ventas\Stock\Application\ResumenAlertasStockBajo::class);
+        $stock_alertas_resumen = $resumenAlertasStockBajo->ejecutar($id_usuario);
         if (!is_array($cache_alertas))
             $cache_alertas = [];
         $cache_alertas[$cache_key] = [
@@ -86,13 +86,11 @@ if (isset($_SESSION["usuario_logueado"])) {
             $modulos_visibles[$clave] = $permitidos[$clave];
     }
     foreach ($permitidos as $clave => $modulo) {
-        if ($clave === "inicio")
-            continue;
-        if (!usuario_puede_modulo($clave))
-            continue;
-        $modulo["clave"] = $clave;
-        $modulo["activo"] = isset($modulos_visibles[$clave]);
-        $modulos_config[$clave] = $modulo;
+        if ($clave !== "inicio" && usuario_puede_modulo($clave)) {
+            $modulo["clave"] = $clave;
+            $modulo["activo"] = isset($modulos_visibles[$clave]);
+            $modulos_config[$clave] = $modulo;
+        }
     }
 }
 
@@ -222,7 +220,7 @@ if (isset($current_section_modulos["reparaciones"]))
                   <span><?= htmlspecialchars($modulo["texto"]) ?></span>
                 </button>
               <?php else: ?>
-                <a class="menu-icono menu-icono-inline" href="index.php?c=reparaciones&a=index">
+                <a class="menu-icono menu-icono-inline" href="/Sistema-de-ventas/laravel/public/reparaciones">
                   <i class="bi <?= htmlspecialchars($modulo["icono"]) ?> <?= htmlspecialchars($modulo["clase"]) ?>"></i>
                   <span><?= htmlspecialchars($modulo["texto"]) ?></span>
                 </a>

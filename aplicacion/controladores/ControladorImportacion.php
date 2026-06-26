@@ -1,6 +1,4 @@
 <?php
-require_once __DIR__ . "/../modelos/ModeloImportacion.php";
-require_once __DIR__ . "/../modelos/ListaPrecio.php";
 require_once __DIR__ . "/../../configuraciones/seguridad.php";
 require_once __DIR__ . "/../../configuraciones/ayudas.php";
 require_once __DIR__ . "/../../configuraciones/csrf.php";
@@ -123,6 +121,44 @@ class ControladorImportacion {
         return $filas;
     }
 
+    private function registrar_importacion_modular(): void {
+        global $container;
+
+        if (!$container->has(\Ventas\Importacion\Application\ListarHojasImportacionExcel::class)) {
+            \Ventas\Importacion\Infrastructure\RegistroImportacion::registrar($container);
+        }
+    }
+
+    private function listar_hojas_importacion_excel(string $ruta): array {
+        global $container;
+
+        $this->registrar_importacion_modular();
+        $caso_uso = $container->get(\Ventas\Importacion\Application\ListarHojasImportacionExcel::class);
+        $resultado = $caso_uso->ejecutar($ruta);
+
+        return $resultado;
+    }
+
+    private function analizar_importacion_productos(string $ruta, int $hoja): array {
+        global $container;
+
+        $this->registrar_importacion_modular();
+        $caso_uso = $container->get(\Ventas\Importacion\Application\AnalizarImportacionProductos::class);
+        $resultado = $caso_uso->ejecutar($ruta, $hoja);
+
+        return $resultado;
+    }
+
+    private function importar_productos_desde_excel(string $ruta, int $hoja, string $nombre, int $id_usuario): array {
+        global $container;
+
+        $this->registrar_importacion_modular();
+        $caso_uso = $container->get(\Ventas\Importacion\Application\ImportarProductosDesdeExcel::class);
+        $resultado = $caso_uso->ejecutar($ruta, $hoja, $nombre, $id_usuario);
+
+        return $resultado;
+    }
+
     public function index(): void {
         if ($this->permiso()) {
             $this->limpiar_importaciones_viejas();
@@ -142,8 +178,8 @@ class ControladorImportacion {
             if (!empty($sesion["ruta"]) && is_file((string)$sesion["ruta"])) {
                 $archivo_nombre = (string)($sesion["nombre"] ?? "");
                 $hoja_seleccionada = (int)($sesion["hoja"] ?? 0);
-                $hojas = ModeloImportacion::hojas((string)$sesion["ruta"]);
-                $analisis = ModeloImportacion::analizar((string)$sesion["ruta"], $hoja_seleccionada);
+                $hojas = $this->listar_hojas_importacion_excel((string)$sesion["ruta"]);
+                $analisis = $this->analizar_importacion_productos((string)$sesion["ruta"], $hoja_seleccionada);
                 if (is_array($analisis) && isset($analisis["preview"]) && is_array($analisis["preview"]))
                     $analisis["preview"] = $this->ordenar_filas_importacion($analisis["preview"], $orden_importacion["campo"], $orden_importacion["direccion"]);
             }
@@ -205,7 +241,7 @@ class ControladorImportacion {
                     redirigir("index.php?c=importacion&a=index");
                 } else {
                     $id_usuario = (int)($_SESSION["usuario_logueado"]["id"] ?? 0);
-                    $resultado = ModeloImportacion::importar($ruta, $hoja, $nombre, $id_usuario);
+                    $resultado = $this->importar_productos_desde_excel($ruta, $hoja, $nombre, $id_usuario);
                     if (!empty($resultado["ok"])) {
                         $this->limpiar_sesion_importacion();
                         flash_ok("Importacion finalizada.");
